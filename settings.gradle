@@ -1,0 +1,10 @@
+include "aws",
+        "aws:api-handler",
+        "aws:worker",
+        "azure",
+        "azure:api-handler",
+        "azure:worker",
+        "deployment",
+        "libraries:worker",
+        "scripts",
+        "scripts:publish"
