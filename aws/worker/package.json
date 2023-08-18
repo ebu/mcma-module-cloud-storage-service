@@ -1,0 +1,27 @@
+{
+    "name": "worker",
+    "version": "0.0.0",
+    "private": true,
+    "license": "Apache-2.0",
+    "dependencies": {
+        "@aws-sdk/client-cloudwatch-logs": "^3.300.0",
+        "@aws-sdk/client-dynamodb": "^3.300.0",
+        "@aws-sdk/client-secrets-manager": "^3.300.0",
+        "@aws-sdk/client-s3": "^3.300.0",
+        "@mcma/aws-client": "0.16.3-beta13",
+        "@mcma/aws-cloudwatch-events": "0.16.3-beta13",
+        "@mcma/aws-dynamodb": "0.16.3-beta13",
+        "@mcma/aws-logger": "0.16.3-beta13",
+        "@mcma/aws-secrets-manager": "0.16.3-beta13",
+        "@mcma/api": "0.16.3-beta13",
+        "@mcma/client": "0.16.3-beta13",
+        "@mcma/core": "0.16.3-beta13",
+        "@mcma/data": "0.16.3-beta13",
+        "@mcma/worker": "0.16.3-beta13",
+        "aws-xray-sdk-core": "^3.4.1"
+    },
+    "devDependencies": {
+        "@types/aws-lambda": "^8.10.114",
+        "@types/node": "^18.15.11"
+    }
+}

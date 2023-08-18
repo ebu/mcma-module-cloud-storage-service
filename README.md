@@ -1,2 +1,2 @@
-# mcma-module-transfer-service
-Generic transfer service for copying files and folders between cloud storage locations
+# mcma-module-cloud-storage-service
+Service that is able to copy / move / delete files and folders between / from cloud storage locations
