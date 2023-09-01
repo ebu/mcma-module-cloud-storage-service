@@ -91,7 +91,10 @@ resource "aws_iam_role_policy" "worker" {
         Sid      = "AllowReadingApiKey"
         Effect   = "Allow"
         Action   = "secretsmanager:GetSecretValue"
-        Resource = aws_secretsmanager_secret.api_key.arn
+        Resource = [
+          aws_secretsmanager_secret.api_key.arn,
+          aws_secretsmanager_secret.storage_client_config.arn
+        ]
       },
     ],
       length(var.execute_api_arns) > 0 ?
@@ -125,7 +128,23 @@ resource "aws_iam_role_policy" "worker" {
           Action   = "sqs:SendMessage"
           Resource = var.dead_letter_config_target
         }
-      ] : [])
+      ] : [],
+      length(local.buckets_that_require_permissions) > 0 ?
+      [
+        {
+          Sid      = "AllowS3Listing"
+          Effect   = "Allow"
+          Action   = ["s3:ListBucket"]
+          Resource = local.buckets_that_require_permissions
+        },
+        {
+          Sid      = "AllowS3Operations"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+          Resource = [for bucket in local.buckets_that_require_permissions : "${bucket}/*"]
+        }
+      ] : [],
+    )
   })
 }
 
@@ -156,6 +175,8 @@ resource "aws_lambda_function" "worker" {
       MCMA_SERVICE_REGISTRY_URL       = var.service_registry.service_url
       MCMA_SERVICE_REGISTRY_AUTH_TYPE = var.service_registry.auth_type
       MCMA_API_KEY_SECRET_ID          = aws_secretsmanager_secret.api_key.name
+      STORAGE_CLIENT_CONFIG_SECRET_ID = aws_secretsmanager_secret.storage_client_config.name
+      STORAGE_CLIENT_CONFIG_HASH      = sha256(aws_secretsmanager_secret_version.storage_client_config.secret_string)
     }
   }
 
@@ -174,3 +195,8 @@ resource "aws_lambda_function" "worker" {
   tags = var.tags
 }
 
+locals {
+  buckets_that_require_permissions = [
+    for each in var.aws_s3_buckets : "arn:aws:s3:::${each.bucket}"if each.access_key == null || each.secret_key == null
+  ]
+}

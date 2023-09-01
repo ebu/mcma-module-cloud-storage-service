@@ -6,13 +6,17 @@ import { AppInsightsLoggerProvider } from "@mcma/azure-logger";
 import { AzureKeyVaultSecretsProvider } from "@mcma/azure-key-vault";
 import { CosmosDbTableProvider, fillOptionsFromConfigVariables } from "@mcma/azure-cosmos-db";
 
-import { buildWorker, WorkerContext } from "@local/worker";
+import { buildWorker, WorkerContext, StorageClientFactory } from "@local/worker";
 
 const dbTableProvider = new CosmosDbTableProvider(fillOptionsFromConfigVariables());
 const secretsProvider = new AzureKeyVaultSecretsProvider();
 const authProvider = new AuthProvider().add(mcmaApiKeyAuth({ secretsProvider }));
 const resourceManagerProvider = new ResourceManagerProvider(authProvider);
 const loggerProvider = new AppInsightsLoggerProvider("cloud-storage-service-worker");
+
+const storageClientFactory = new StorageClientFactory({
+    secretsProvider,
+});
 
 const worker = buildWorker(dbTableProvider, loggerProvider, resourceManagerProvider, secretsProvider);
 
@@ -27,6 +31,7 @@ export const handler: AzureFunction = async (context: Context) => {
 
         const workerContext: WorkerContext = {
             requestId: context.invocationId,
+            storageClientFactory
         };
 
         await worker.doWork(new WorkerRequest(queueMessage, logger), workerContext);

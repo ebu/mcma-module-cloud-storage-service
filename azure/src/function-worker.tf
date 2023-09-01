@@ -49,6 +49,9 @@ resource "azurerm_windows_function_app" "worker" {
 
     MCMA_KEY_VAULT_URL     = azurerm_key_vault.service.vault_uri
     MCMA_API_KEY_SECRET_ID = azurerm_key_vault_secret.api_key.name
+
+    STORAGE_CLIENT_CONFIG_SECRET_ID = azurerm_key_vault_secret.storage_client_config.name
+    STORAGE_CLIENT_CONFIG_HASH      = sha256(azurerm_key_vault_secret.storage_client_config.value)
   }
 }
 

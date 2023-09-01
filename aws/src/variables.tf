@@ -126,3 +126,24 @@ variable "api_security_auth_type" {
     error_message = "ERROR: Valid auth types are \"AWS4\" and \"McmaApiKey\"!"
   }
 }
+
+########################
+# Storage access
+########################
+
+variable "aws_s3_buckets" {
+  type = list(object({
+    bucket     = string
+    region     = string
+    access_key = optional(string)
+    secret_key = optional(string)
+    endpoint   = optional(string)
+  }))
+}
+
+variable "azure_storage_accounts" {
+  type = list(object({
+    account           = string
+    connection_string = string
+  }))
+}

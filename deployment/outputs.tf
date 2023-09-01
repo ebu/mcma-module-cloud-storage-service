@@ -52,3 +52,32 @@ output "deployment_api_key" {
   sensitive = true
   value     = random_password.deployment_api_key.result
 }
+
+output "aws_private_source_bucket" {
+  value = aws_s3_bucket.private.id
+}
+
+output "aws_public_source_bucket" {
+  value = aws_s3_bucket.public.id
+}
+
+output "aws_private_ext_source_bucket" {
+  value = aws_s3_bucket.private_ext.id
+}
+
+output "aws_target_bucket" {
+  value = aws_s3_bucket.target.id
+}
+
+output "azure_storage_connection_string" {
+  sensitive = true
+  value     = azurerm_storage_account.app_storage_account.primary_connection_string
+}
+
+output "azure_source_container" {
+  value = azurerm_storage_container.source.name
+}
+
+output "azure_target_container" {
+  value = azurerm_storage_container.target.name
+}

@@ -32,7 +32,8 @@ if (process.env.MCMA_API_KEY_SECURITY_CONFIG_SECRET_ID) {
 
 const restController = new ApiGatewayApiController({
     routes,
-    loggerProvider
+    loggerProvider,
+    middleware,
 });
 
 export async function handler(event: APIGatewayProxyEvent, context: Context) {

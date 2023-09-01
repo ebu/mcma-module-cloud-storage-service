@@ -8,22 +8,31 @@ task generateTerraformTFVars {
     inputs.property("azure_subscription_id", azureSubscriptionId)
     inputs.property("azure_tenant_id", azureTenantId)
     inputs.property("azure_location", azureLocation)
+    inputs.property("s3_like_bucket_name", s3LikeBucketName)
+    inputs.property("s3_like_bucket_access_key", s3LikeBucketAccessKey)
+    inputs.property("s3_like_bucket_secret_key", s3LikeBucketSecretKey)
+    inputs.property("s3_like_bucket_endpoint", s3LikeBucketEndpoint)
 
     def propertyFile = file("${projectDir}/terraform.tfvars.json")
     outputs.file(propertyFile)
 
     doLast {
         def data = [
-                environment_name     : environmentName,
-                environment_type     : environmentType,
-                prefix               : "${environmentName}.${environmentType}".replace(".", "-"),
+                environment_name         : environmentName,
+                environment_type         : environmentType,
+                prefix                   : "${environmentName}.${environmentType}".replace(".", "-"),
 
-                aws_profile          : awsProfile,
-                aws_region           : awsRegion,
+                aws_profile              : awsProfile,
+                aws_region               : awsRegion,
 
-                azure_subscription_id: azureSubscriptionId,
-                azure_tenant_id      : azureTenantId,
-                azure_location       : azureLocation
+                azure_subscription_id    : azureSubscriptionId,
+                azure_tenant_id          : azureTenantId,
+                azure_location           : azureLocation,
+
+                s3_like_bucket_name      : s3LikeBucketName,
+                s3_like_bucket_access_key: s3LikeBucketAccessKey,
+                s3_like_bucket_secret_key: s3LikeBucketSecretKey,
+                s3_like_bucket_endpoint  : s3LikeBucketEndpoint,
         ]
 
         def json = JsonOutput.toJson(data)

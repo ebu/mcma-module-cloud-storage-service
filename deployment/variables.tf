@@ -45,3 +45,22 @@ variable "AZURE_CLIENT_SECRET" {
   default     = null
 }
 
+#######################
+# S3 like bucket config
+#######################
+
+variable "s3_like_bucket_name" {
+  type = string
+}
+
+variable "s3_like_bucket_access_key" {
+  type = string
+}
+
+variable "s3_like_bucket_secret_key" {
+  type = string
+}
+
+variable "s3_like_bucket_endpoint" {
+  type = string
+}

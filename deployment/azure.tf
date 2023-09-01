@@ -46,7 +46,6 @@ resource "azurerm_storage_account" "app_storage_account" {
   account_replication_type = "LRS"
 }
 
-
 ######################
 # App Service Plan
 ######################
@@ -124,7 +123,7 @@ module "service_registry_azure" {
 
   api_keys_read_only = [
     module.job_processor_azure.api_key,
-    module.cloud_storage_service_aws.api_key,
+    module.cloud_storage_service_azure.api_key,
   ]
 
   api_keys_read_write = [
@@ -155,7 +154,7 @@ module "job_processor_azure" {
 
   api_keys_read_write = [
     random_password.deployment_api_key.result,
-    module.cloud_storage_service_aws.api_key,
+    module.cloud_storage_service_azure.api_key,
   ]
 }
 
@@ -178,6 +177,42 @@ module "cloud_storage_service_azure" {
   service_registry = module.service_registry_azure
 
   api_keys_read_write = [
-    random_password.deployment_api_key.result
+    random_password.deployment_api_key.result,
+    module.job_processor_azure.api_key
+  ]
+
+  aws_s3_buckets = [
+    {
+      bucket = aws_s3_bucket.private.id
+      region = var.aws_region
+      access_key = aws_iam_access_key.bucket_access.id
+      secret_key = aws_iam_access_key.bucket_access.secret
+    },
+    {
+      bucket    = aws_s3_bucket.private_ext.id
+      region    = var.aws_region
+      access_key = aws_iam_access_key.bucket_access.id
+      secret_key = aws_iam_access_key.bucket_access.secret
+    },
+    {
+      bucket = aws_s3_bucket.target.id
+      region = var.aws_region
+      access_key = aws_iam_access_key.bucket_access.id
+      secret_key = aws_iam_access_key.bucket_access.secret
+    },
+    {
+      bucket    = var.s3_like_bucket_name
+      region    = "us-east-1"
+      access_key = var.s3_like_bucket_access_key
+      secret_key = var.s3_like_bucket_secret_key
+      endpoint  = var.s3_like_bucket_endpoint
+    }
+  ]
+
+  azure_storage_accounts = [
+    {
+      account           = azurerm_storage_account.app_storage_account.name
+      connection_string = azurerm_storage_account.app_storage_account.primary_connection_string
+    }
   ]
 }

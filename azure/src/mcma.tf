@@ -17,6 +17,7 @@ resource "mcma_service" "service" {
 
   name     = var.name
   job_type = "StorageJob"
+  auth_type = local.auth_type
 
   resource {
     resource_type = "JobAssignment"
@@ -37,7 +38,7 @@ resource "mcma_job_profile" "copy_file" {
   }
 
   input_parameter {
-    name = "destinationFile"
+    name = "targetFile"
     type = "Locator"
   }
 }

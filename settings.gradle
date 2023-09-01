@@ -7,4 +7,5 @@ include "aws",
         "deployment",
         "libraries:worker",
         "scripts",
-        "scripts:publish"
+        "scripts:publish",
+        "scripts:test-copy-file"

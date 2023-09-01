@@ -59,9 +59,9 @@ module "service_registry_aws" {
   ]
 }
 
-#########################
-# Job Processor Module
-#########################
+##########################
+## Job Processor Module
+##########################
 
 module "job_processor_aws" {
   providers = {
@@ -108,6 +108,38 @@ module "cloud_storage_service_aws" {
   xray_tracing_enabled        = true
 
   api_keys_read_write = [
-    random_password.deployment_api_key.result
+    random_password.deployment_api_key.result,
+    module.job_processor_aws.api_key
+  ]
+
+  aws_s3_buckets = [
+    {
+      bucket = aws_s3_bucket.private.id
+      region = var.aws_region
+    },
+    {
+      bucket    = aws_s3_bucket.private_ext.id
+      region    = var.aws_region
+      access_key = aws_iam_access_key.bucket_access.id
+      secret_key = aws_iam_access_key.bucket_access.secret
+    },
+    {
+      bucket = aws_s3_bucket.target.id
+      region = var.aws_region
+    },
+    {
+      bucket    = var.s3_like_bucket_name
+      region    = "us-east-1"
+      access_key = var.s3_like_bucket_access_key
+      secret_key = var.s3_like_bucket_secret_key
+      endpoint  = var.s3_like_bucket_endpoint
+    }
+  ]
+
+  azure_storage_accounts = [
+    {
+      account           = azurerm_storage_account.app_storage_account.name
+      connection_string = azurerm_storage_account.app_storage_account.primary_connection_string
+    }
   ]
 }

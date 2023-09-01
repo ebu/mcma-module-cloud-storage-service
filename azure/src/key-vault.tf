@@ -87,3 +87,32 @@ resource "random_password" "api_key" {
   length  = 32
   special = false
 }
+
+locals {
+  aws_config = merge({
+    for each in var.aws_s3_buckets :
+    each.bucket => {
+      region    = each.region
+      accessKey = each.access_key
+      secretKey = each.secret_key
+      endpoint  = each.endpoint
+    }
+  })
+  azure_config = merge({
+    for each in var.azure_storage_accounts :
+    each.account => {
+      connectionString = each.connection_string
+    }
+  })
+}
+
+resource "azurerm_key_vault_secret" "storage_client_config" {
+  depends_on = [azurerm_key_vault_access_policy.deployment]
+
+  key_vault_id = azurerm_key_vault.service.id
+  name         = "storage-client-config"
+  value        = jsonencode({
+    aws   = local.aws_config
+    azure = local.azure_config
+  })
+}

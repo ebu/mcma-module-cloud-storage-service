@@ -47,3 +47,34 @@ resource "random_password" "api_key" {
   length  = 32
   special = false
 }
+
+locals {
+  aws_config = merge({
+    for each in var.aws_s3_buckets :
+    each.bucket => {
+      region    = each.region
+      accessKey = each.access_key
+      secretKey = each.secret_key
+      endpoint  = each.endpoint
+    }
+  })
+  azure_config = merge({
+    for each in var.azure_storage_accounts :
+    each.account => {
+      connectionString = each.connection_string
+    }
+  })
+}
+
+resource "aws_secretsmanager_secret" "storage_client_config" {
+  name_prefix             = "${var.prefix}-storage-client-config"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "storage_client_config" {
+  secret_id     = aws_secretsmanager_secret.storage_client_config.id
+  secret_string = jsonencode({
+    aws   = local.aws_config
+    azure = local.azure_config
+  })
+}

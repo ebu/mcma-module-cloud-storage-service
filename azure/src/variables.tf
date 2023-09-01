@@ -5,7 +5,7 @@
 variable "name" {
   type        = string
   description = "Optional variable to set a custom name for this service in the service registry"
-  default     = "Job Processor"
+  default     = "Cloud Storage Service"
 }
 
 variable "prefix" {
@@ -94,4 +94,25 @@ variable "service_registry" {
     auth_type   = string,
     service_url = string,
   })
+}
+
+########################
+# Storage access
+########################
+
+variable "aws_s3_buckets" {
+  type = list(object({
+    bucket     = string
+    region     = string
+    access_key = optional(string)
+    secret_key = optional(string)
+    endpoint   = optional(string)
+  }))
+}
+
+variable "azure_storage_accounts" {
+  type = list(object({
+    account           = string
+    connection_string = string
+  }))
 }
