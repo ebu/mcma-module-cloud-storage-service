@@ -12,7 +12,6 @@ import { ConsoleLoggerProvider } from "@mcma/core";
 import { AwsSecretsManagerSecretsProvider } from "@mcma/aws-secrets-manager";
 
 const secretsManagerClient = AWSXRay.captureAWSv3Client(new SecretsManagerClient({}));
-
 const dynamoDBClient = AWSXRay.captureAWSv3Client(new DynamoDBClient({}));
 const lambdaClient = AWSXRay.captureAWSv3Client(new LambdaClient({}));
 
@@ -37,7 +36,7 @@ const restController = new ApiGatewayApiController({
 });
 
 export async function handler(event: APIGatewayProxyEvent, context: Context) {
-    const logger = loggerProvider.get(context.awsRequestId);
+    const logger = await loggerProvider.get(context.awsRequestId);
     try {
         logger.functionStart(context.awsRequestId);
         logger.debug(event);

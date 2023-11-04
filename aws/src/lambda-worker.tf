@@ -197,6 +197,6 @@ resource "aws_lambda_function" "worker" {
 
 locals {
   buckets_that_require_permissions = [
-    for each in var.aws_s3_buckets : "arn:aws:s3:::${each.bucket}"if each.access_key == null || each.secret_key == null
+    for each in var.aws_s3_buckets : "arn:aws:s3:::${each.bucket}" if each.access_key == null || each.secret_key == null
   ]
 }

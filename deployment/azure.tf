@@ -110,9 +110,9 @@ resource "azurerm_application_insights" "app_insights" {
 #########################
 
 module "service_registry_azure" {
-  source = "https://ch-ebu-mcma-module-repository.s3.eu-central-1.amazonaws.com/ebu/service-registry/azure/0.16.1-beta7/module.zip"
+  source = "https://ch-ebu-mcma-module-repository.s3.eu-central-1.amazonaws.com/ebu/service-registry/azure/0.16.1/module.zip"
 
-  prefix = "${var.prefix}-service-registry"
+  prefix = "${var.prefix}-sr"
 
   resource_group      = azurerm_resource_group.resource_group
   app_storage_account = azurerm_storage_account.app_storage_account
@@ -129,6 +129,8 @@ module "service_registry_azure" {
   api_keys_read_write = [
     random_password.deployment_api_key.result
   ]
+
+  key_vault_secret_expiration_date = "2100-01-01T00:00:00Z"
 }
 
 #########################
@@ -140,8 +142,8 @@ module "job_processor_azure" {
     mcma = mcma.azure
   }
 
-  source = "https://ch-ebu-mcma-module-repository.s3.eu-central-1.amazonaws.com/ebu/job-processor/azure/0.16.1-beta4/module.zip"
-  prefix = "${var.prefix}-job-processor"
+  source = "https://ch-ebu-mcma-module-repository.s3.eu-central-1.amazonaws.com/ebu/job-processor/azure/0.16.1/module.zip"
+  prefix = "${var.prefix}-jp"
 
   resource_group      = azurerm_resource_group.resource_group
   app_storage_account = azurerm_storage_account.app_storage_account
@@ -156,6 +158,8 @@ module "job_processor_azure" {
     random_password.deployment_api_key.result,
     module.cloud_storage_service_azure.api_key,
   ]
+
+  key_vault_secret_expiration_date = "2100-01-01T00:00:00Z"
 }
 
 module "cloud_storage_service_azure" {

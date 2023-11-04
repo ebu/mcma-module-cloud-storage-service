@@ -1,6 +1,6 @@
 locals {
   service_api_zip_file      = "${path.module}/functions/api-handler.zip"
-  service_api_function_name = format("%.32s", replace("${var.prefix}${var.resource_group.location}", "/[^a-z0-9]+/", ""))
+  service_api_function_name = format("%.32s", replace("${var.prefix}api${var.resource_group.location}", "/[^a-z0-9]+/", ""))
   service_url               = "https://${local.service_api_function_name}.azurewebsites.net"
   auth_type                 = "McmaApiKey"
 }

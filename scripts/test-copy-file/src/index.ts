@@ -210,6 +210,7 @@ async function main() {
         azureTarget,
     };
 
+    await testService(awsResourceManager, locators);
     await testService(azureResourceManager, locators);
 }
 

@@ -73,6 +73,8 @@ resource "azurerm_key_vault_secret" "api_key_security_config" {
     local.api_keys_read_only,
     local.api_keys_read_write
   ))
+
+  expiration_date = var.key_vault_secret_expiration_date
 }
 
 resource "azurerm_key_vault_secret" "api_key" {
@@ -81,6 +83,8 @@ resource "azurerm_key_vault_secret" "api_key" {
   key_vault_id = azurerm_key_vault.service.id
   name         = "api-key"
   value        = random_password.api_key.result
+
+  expiration_date = var.key_vault_secret_expiration_date
 }
 
 resource "random_password" "api_key" {
@@ -115,4 +119,6 @@ resource "azurerm_key_vault_secret" "storage_client_config" {
     aws   = local.aws_config
     azure = local.azure_config
   })
+
+  expiration_date = var.key_vault_secret_expiration_date
 }
