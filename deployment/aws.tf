@@ -7,6 +7,12 @@ provider "aws" {
   region  = var.aws_region
 }
 
+provider "aws" {
+  profile = var.aws_profile
+  region  = "eu-west-1"
+  alias   = "eu_west_1"
+}
+
 provider "mcma" {
   alias = "aws"
 
@@ -111,31 +117,41 @@ module "cloud_storage_service_aws" {
   aws_s3_buckets = [
     {
       bucket = aws_s3_bucket.private.id
-      region = var.aws_region
+      region = aws_s3_bucket.private.region
     },
     {
-      bucket    = aws_s3_bucket.private_ext.id
-      region    = var.aws_region
+      bucket     = aws_s3_bucket.private_ext.id
+      region     = aws_s3_bucket.private_ext.region
       access_key = aws_iam_access_key.bucket_access.id
       secret_key = aws_iam_access_key.bucket_access.secret
     },
     {
       bucket = aws_s3_bucket.target.id
-      region = var.aws_region
+      region = aws_s3_bucket.target.region
     },
     {
-      bucket    = var.s3_like_bucket_name
-      region    = "us-east-1"
+      bucket     = var.s3_like_bucket_name
+      region     = "us-east-1"
       access_key = var.s3_like_bucket_access_key
       secret_key = var.s3_like_bucket_secret_key
-      endpoint  = var.s3_like_bucket_endpoint
-    }
+      endpoint   = var.s3_like_bucket_endpoint
+    },
+    {
+      bucket     = aws_s3_bucket.private_eu_west_1.id
+      region     = aws_s3_bucket.private_eu_west_1.region
+      access_key = aws_iam_access_key.bucket_access.id
+      secret_key = aws_iam_access_key.bucket_access.secret
+    },
   ]
 
   azure_storage_accounts = [
     {
       account           = azurerm_storage_account.app_storage_account.name
       connection_string = azurerm_storage_account.app_storage_account.primary_connection_string
-    }
+    },
+    {
+      account           = azurerm_storage_account.app_storage_account_east_us.name
+      connection_string = azurerm_storage_account.app_storage_account_east_us.primary_connection_string
+    },
   ]
 }

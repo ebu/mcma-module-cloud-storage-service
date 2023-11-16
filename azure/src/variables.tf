@@ -66,12 +66,12 @@ variable "app_insights" {
 #######################
 
 variable "api_keys_read_only" {
-  type = list(string)
+  type    = list(string)
   default = []
 }
 
 variable "api_keys_read_write" {
-  type = list(string)
+  type    = list(string)
   default = []
 }
 
@@ -120,4 +120,26 @@ variable "azure_storage_accounts" {
     account           = string
     connection_string = string
   }))
+}
+
+####################################
+# Configuration for copy to AWS S3
+####################################
+
+variable "aws_s3_copy_max_concurrency" {
+  type        = number
+  description = "Set number of max concurrency while doing copy between S3 buckets"
+  default     = 16
+}
+
+variable "aws_url_copy_max_concurrency" {
+  type        = number
+  description = "Set number of max concurrency while doing copy from url to S3 buckets"
+  default     = 8
+}
+
+variable "worker_function_timeout" {
+  type        = string
+  description = "Set the timeout for the worker function. Valid values depend on chosen app service plan"
+  default     = "00:10:00"
 }

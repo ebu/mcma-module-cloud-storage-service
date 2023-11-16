@@ -38,6 +38,43 @@ resource "mcma_job_profile" "copy_file" {
   }
 
   input_parameter {
+    name = "sourceAlternateUrl"
+    type = "string"
+    optional = true
+  }
+
+  input_parameter {
+    name = "sourceAlternateAuthType"
+    type = "string"
+    optional = true
+  }
+
+  input_parameter {
+    name = "targetFile"
+    type = "Locator"
+  }
+}
+resource "mcma_job_profile" "copy_folder" {
+  name = "CopyFolder"
+
+  input_parameter {
+    name = "sourceFile"
+    type = "Locator"
+  }
+
+  input_parameter {
+    name = "sourceAlternateHost"
+    type = "string"
+    optional = true
+  }
+
+  input_parameter {
+    name = "sourceAlternateAuthType"
+    type = "string"
+    optional = true
+  }
+
+  input_parameter {
     name = "targetFile"
     type = "Locator"
   }

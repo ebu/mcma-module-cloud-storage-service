@@ -94,6 +94,22 @@ variable "enhanced_monitoring_enabled" {
   default     = false
 }
 
+####################################
+# Configuration for copy to AWS S3
+####################################
+
+variable "aws_s3_copy_max_concurrency" {
+  type        = number
+  description = "Set number of max concurrency while doing copy between S3 buckets"
+  default     = 16
+}
+
+variable "aws_url_copy_max_concurrency" {
+  type        = number
+  description = "Set number of max concurrency while doing copy from url to S3 buckets"
+  default     = 8
+}
+
 #########################
 # MCMA Api Key Authentication
 #########################

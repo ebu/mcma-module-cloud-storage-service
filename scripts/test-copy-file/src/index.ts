@@ -165,13 +165,14 @@ async function main() {
     console.log("Starting test service");
 
     const terraformOutput = JSON.parse(fs.readFileSync(TERRAFORM_OUTPUT, "utf8"));
-    const awsPublicSourceBucket: string = terraformOutput.aws_public_source_bucket.value;
-    const awsPrivateSourceBucket: string = terraformOutput.aws_private_source_bucket.value;
-    const awsPrivateExtSourceBucket: string = terraformOutput.aws_private_ext_source_bucket.value;
-    const awsTargetBucket: string = terraformOutput.aws_target_bucket.value;
-    const azureStorageConnectionString: string = terraformOutput.azure_storage_connection_string.value;
-    const azureSourceContainer: string = terraformOutput.azure_source_container.value;
-    const azureTargetContainer: string = terraformOutput.azure_target_container.value;
+    const awsPublicSourceBucket: string = `${terraformOutput.deployment_prefix.value}-public-${terraformOutput.aws_region.value}`;
+    const awsPrivateSourceBucket: string = `${terraformOutput.deployment_prefix.value}-private-${terraformOutput.aws_region.value}`;
+    const awsPrivateExtSourceBucket: string = `${terraformOutput.deployment_prefix.value}-private-ext-${terraformOutput.aws_region.value}`;
+    const awsTargetBucket: string = `${terraformOutput.deployment_prefix.value}-target-${terraformOutput.aws_region.value}`;
+    const azureStorageAccountName: string = `${terraformOutput.deployment_prefix.value}-${terraformOutput.azure_location.value}`.replaceAll(new RegExp(/[^a-z0-9]+/, "g"), "").substring(0, 24);
+    const azureStorageConnectionString: string = terraformOutput.storage_locations.value.azure_storage_accounts.find((sa: any) => sa.account === azureStorageAccountName).connection_string;
+    const azureSourceContainer: string = "source";
+    const azureTargetContainer: string = "target";
 
     const azureSourceContainerClient = new ContainerClient(azureStorageConnectionString, azureSourceContainer);
     const azureTargetContainerClient = new ContainerClient(azureStorageConnectionString, azureTargetContainer);

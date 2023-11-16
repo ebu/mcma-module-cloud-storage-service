@@ -35,6 +35,15 @@ resource "azurerm_resource_group" "resource_group" {
 }
 
 ######################
+# Resource Group east us
+######################
+
+resource "azurerm_resource_group" "resource_group_east_us" {
+  name     = "${var.prefix}-eastus"
+  location = "eastus"
+}
+
+######################
 # App Storage Account
 ######################
 
@@ -42,6 +51,18 @@ resource "azurerm_storage_account" "app_storage_account" {
   name                     = format("%.24s", replace("${var.prefix}-${azurerm_resource_group.resource_group.location}", "/[^a-z0-9]+/", ""))
   resource_group_name      = azurerm_resource_group.resource_group.name
   location                 = azurerm_resource_group.resource_group.location
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+}
+
+######################
+# App Storage Account
+######################
+
+resource "azurerm_storage_account" "app_storage_account_east_us" {
+  name                     = format("%.24s", replace("${var.prefix}-${azurerm_resource_group.resource_group_east_us.location}", "/[^a-z0-9]+/", ""))
+  resource_group_name      = azurerm_resource_group.resource_group_east_us.name
+  location                 = azurerm_resource_group.resource_group_east_us.location
   account_tier             = "Standard"
   account_replication_type = "LRS"
 }
@@ -187,36 +208,48 @@ module "cloud_storage_service_azure" {
 
   aws_s3_buckets = [
     {
-      bucket = aws_s3_bucket.private.id
-      region = var.aws_region
+      bucket     = aws_s3_bucket.private.id
+      region     = aws_s3_bucket.private.region
       access_key = aws_iam_access_key.bucket_access.id
       secret_key = aws_iam_access_key.bucket_access.secret
     },
     {
-      bucket    = aws_s3_bucket.private_ext.id
-      region    = var.aws_region
+      bucket     = aws_s3_bucket.private_ext.id
+      region     = aws_s3_bucket.private_ext.region
       access_key = aws_iam_access_key.bucket_access.id
       secret_key = aws_iam_access_key.bucket_access.secret
     },
     {
-      bucket = aws_s3_bucket.target.id
-      region = var.aws_region
+      bucket     = aws_s3_bucket.target.id
+      region     = aws_s3_bucket.target.region
       access_key = aws_iam_access_key.bucket_access.id
       secret_key = aws_iam_access_key.bucket_access.secret
     },
     {
-      bucket    = var.s3_like_bucket_name
-      region    = "us-east-1"
+      bucket     = var.s3_like_bucket_name
+      region     = "us-east-1"
       access_key = var.s3_like_bucket_access_key
       secret_key = var.s3_like_bucket_secret_key
-      endpoint  = var.s3_like_bucket_endpoint
-    }
+      endpoint   = var.s3_like_bucket_endpoint
+    },
+    {
+      bucket     = aws_s3_bucket.private_eu_west_1.id
+      region     = aws_s3_bucket.private_eu_west_1.region
+      access_key = aws_iam_access_key.bucket_access.id
+      secret_key = aws_iam_access_key.bucket_access.secret
+    },
   ]
 
   azure_storage_accounts = [
     {
       account           = azurerm_storage_account.app_storage_account.name
       connection_string = azurerm_storage_account.app_storage_account.primary_connection_string
-    }
+    },
+    {
+      account           = azurerm_storage_account.app_storage_account_east_us.name
+      connection_string = azurerm_storage_account.app_storage_account_east_us.primary_connection_string
+    },
   ]
+
+  key_vault_secret_expiration_date = "2100-01-01T00:00:00Z"
 }

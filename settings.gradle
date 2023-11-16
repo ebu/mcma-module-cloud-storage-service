@@ -8,4 +8,5 @@ include "aws",
         "libraries:worker",
         "scripts",
         "scripts:publish",
-        "scripts:test-copy-file"
+        "scripts:test-copy-file",
+        "scripts:test-worker-lib"

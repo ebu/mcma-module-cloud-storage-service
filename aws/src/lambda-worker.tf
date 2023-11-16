@@ -177,6 +177,8 @@ resource "aws_lambda_function" "worker" {
       MCMA_API_KEY_SECRET_ID          = aws_secretsmanager_secret.api_key.name
       STORAGE_CLIENT_CONFIG_SECRET_ID = aws_secretsmanager_secret.storage_client_config.name
       STORAGE_CLIENT_CONFIG_HASH      = sha256(aws_secretsmanager_secret_version.storage_client_config.secret_string)
+      AWS_S3_COPY_MAX_CONCURRENCY     = var.aws_s3_copy_max_concurrency
+      AWS_URL_COPY_MAX_CONCURRENCY    = var.aws_url_copy_max_concurrency
     }
   }
 

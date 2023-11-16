@@ -52,6 +52,11 @@ resource "azurerm_windows_function_app" "worker" {
 
     STORAGE_CLIENT_CONFIG_SECRET_ID = azurerm_key_vault_secret.storage_client_config.name
     STORAGE_CLIENT_CONFIG_HASH      = sha256(azurerm_key_vault_secret.storage_client_config.value)
+
+    AWS_S3_COPY_MAX_CONCURRENCY  = var.aws_s3_copy_max_concurrency
+    AWS_URL_COPY_MAX_CONCURRENCY = var.aws_url_copy_max_concurrency
+
+    AzureFunctionsJobHost__functionTimeout = var.worker_function_timeout
   }
 }
 

@@ -53,31 +53,64 @@ output "deployment_api_key" {
   value     = random_password.deployment_api_key.result
 }
 
-output "aws_private_source_bucket" {
-  value = aws_s3_bucket.private.id
+output "deployment_prefix" {
+  value = var.prefix
 }
 
-output "aws_public_source_bucket" {
-  value = aws_s3_bucket.public.id
+output "aws_region" {
+  value = var.aws_region
 }
 
-output "aws_private_ext_source_bucket" {
-  value = aws_s3_bucket.private_ext.id
+output "azure_location" {
+  value = var.azure_location
 }
 
-output "aws_target_bucket" {
-  value = aws_s3_bucket.target.id
-}
-
-output "azure_storage_connection_string" {
+output "storage_locations" {
   sensitive = true
-  value     = azurerm_storage_account.app_storage_account.primary_connection_string
-}
+  value     = {
+    aws_s3_buckets = [
+      {
+        bucket     = aws_s3_bucket.private.id
+        region     = aws_s3_bucket.private.region
+        access_key = aws_iam_access_key.bucket_access.id
+        secret_key = aws_iam_access_key.bucket_access.secret
+      },
+      {
+        bucket     = aws_s3_bucket.private_ext.id
+        region     = aws_s3_bucket.private_ext.region
+        access_key = aws_iam_access_key.bucket_access.id
+        secret_key = aws_iam_access_key.bucket_access.secret
+      },
+      {
+        bucket     = aws_s3_bucket.target.id
+        region     = aws_s3_bucket.target.region
+        access_key = aws_iam_access_key.bucket_access.id
+        secret_key = aws_iam_access_key.bucket_access.secret
+      },
+      {
+        bucket     = var.s3_like_bucket_name
+        region     = "us-east-1"
+        access_key = var.s3_like_bucket_access_key
+        secret_key = var.s3_like_bucket_secret_key
+        endpoint   = var.s3_like_bucket_endpoint
+      },
+      {
+        bucket     = aws_s3_bucket.private_eu_west_1.id
+        region     = aws_s3_bucket.private_eu_west_1.region
+        access_key = aws_iam_access_key.bucket_access.id
+        secret_key = aws_iam_access_key.bucket_access.secret
+      },
+    ]
 
-output "azure_source_container" {
-  value = azurerm_storage_container.source.name
-}
-
-output "azure_target_container" {
-  value = azurerm_storage_container.target.name
+    azure_storage_accounts = [
+      {
+        account           = azurerm_storage_account.app_storage_account.name
+        connection_string = azurerm_storage_account.app_storage_account.primary_connection_string
+      },
+      {
+        account           = azurerm_storage_account.app_storage_account_east_us.name
+        connection_string = azurerm_storage_account.app_storage_account_east_us.primary_connection_string
+      },
+    ]
+  }
 }

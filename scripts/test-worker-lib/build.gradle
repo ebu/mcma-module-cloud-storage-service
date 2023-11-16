@@ -1,0 +1,8 @@
+apply from: "${project.rootDir}/gradle-tasks-for-scripts.gradle"
+
+
+npmInstall {
+    dependsOn ":libraries:worker:npmPack"
+}
+
+run.dependsOn ":deployment:terraformOutput"

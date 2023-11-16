@@ -91,6 +91,34 @@ resource "aws_s3_bucket_lifecycle_configuration" "private_ext" {
   }
 }
 
+########################################
+# Private Bucket eu-west-1
+########################################
+resource "aws_s3_bucket" "private_eu_west_1" {
+  provider = aws.eu_west_1
+
+  bucket = "${var.prefix}-private2-eu-west-1"
+
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "private_eu_west_1" {
+  provider = aws.eu_west_1
+
+  bucket = aws_s3_bucket.private_eu_west_1.id
+
+  rule {
+    id     = "Delete after 1 day"
+    status = "Enabled"
+    expiration {
+      days = 1
+    }
+  }
+}
+
+########################################
+# Private External Source S3 Bucket
+########################################
 resource "aws_iam_user" "private_ext" {
   name = "${var.prefix}-private-ext-access"
 }
@@ -107,6 +135,19 @@ resource "aws_iam_user_policy" "bucket_access" {
       {
         Effect = "Allow"
         Action = [
+          "s3:GetBucketLocation",
+          "s3:ListBucket",
+        ]
+        Resource = [
+          "arn:aws:s3:::${aws_s3_bucket.private_ext.id}",
+          "arn:aws:s3:::${aws_s3_bucket.private.id}",
+          "arn:aws:s3:::${aws_s3_bucket.target.id}",
+          "arn:aws:s3:::${aws_s3_bucket.private_eu_west_1.id}",
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
           "s3:GetObject",
           "s3:PutObject",
           "s3:DeleteObject",
@@ -114,7 +155,8 @@ resource "aws_iam_user_policy" "bucket_access" {
         Resource = [
           "arn:aws:s3:::${aws_s3_bucket.private_ext.id}/*",
           "arn:aws:s3:::${aws_s3_bucket.private.id}/*",
-          "arn:aws:s3:::${aws_s3_bucket.target.id}/*"
+          "arn:aws:s3:::${aws_s3_bucket.target.id}/*",
+          "arn:aws:s3:::${aws_s3_bucket.private_eu_west_1.id}/*",
         ]
       }
     ]
@@ -146,8 +188,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "target" {
 ########################################
 # Source Blob Storage Container
 ########################################
-resource "azurerm_storage_container" "source" {
-  name = "${var.prefix}-source-${azurerm_resource_group.resource_group.location}"
+resource "azurerm_storage_container" "source_west_europe" {
+  name = "source"
 
   storage_account_name = azurerm_storage_account.app_storage_account.name
 }
@@ -155,8 +197,26 @@ resource "azurerm_storage_container" "source" {
 ########################################
 # Target Blob Storage Container
 ########################################
-resource "azurerm_storage_container" "target" {
-  name = "${var.prefix}-target-${azurerm_resource_group.resource_group.location}"
+resource "azurerm_storage_container" "target_west_europe" {
+  name = "target"
 
   storage_account_name = azurerm_storage_account.app_storage_account.name
+}
+
+########################################
+# Source Blob Storage Container
+########################################
+resource "azurerm_storage_container" "source_east_us" {
+  name = "source"
+
+  storage_account_name = azurerm_storage_account.app_storage_account_east_us.name
+}
+
+########################################
+# Target Blob Storage Container
+########################################
+resource "azurerm_storage_container" "target_east_us" {
+  name = "target"
+
+  storage_account_name = azurerm_storage_account.app_storage_account_east_us.name
 }
