@@ -14,11 +14,11 @@ import { BlobStorageLocator, buildBlobStorageUrl } from "@mcma/azure-blob-storag
 
 const credentials = fromIni();
 
-const JOB_PROFILE = "CopyFile";
+const JOB_PROFILE = "CopyFolder";
 
 const TERRAFORM_OUTPUT = "../../deployment/terraform.output.json";
 
-const MEDIA_FILE = "C:/Media/2015_GF_ORF_00_18_09_conv.mp4";
+const MEDIA_FOLDER = "C:/Media/test/";
 
 const s3Client = new S3Client({ credentials });
 
@@ -30,26 +30,51 @@ export function log(entry?: any) {
     }
 }
 
-async function uploadFileToContainer(containerClient: ContainerClient, filename: string) {
-    const blobName = path.basename(filename);
+function generatePrefix() {
+    return `${new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").substring(0, 15)}/`;
+}
+
+async function uploadFileToContainer(containerClient: ContainerClient, filename: string, prefix: string) {
+    const blobName = prefix + path.basename(filename);
 
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
 
+    log(`checking if file ${blobName} is already present`);
     if (!await blockBlobClient.exists()) {
-        console.log(`Uploading '${blobName}' to ${containerClient.containerName}`);
-        await blockBlobClient.uploadFile(filename);
+        log(`Uploading '${blobName}' to ${containerClient.containerName}`);
+        await blockBlobClient.uploadFile(filename, { blobHTTPHeaders: { blobContentType: mime.lookup(filename) || "application/octet-stream" }});
     }
 
     return new BlobStorageLocator({ url: buildBlobStorageUrl(containerClient.accountName, containerClient.containerName, blobName) });
 }
 
-async function uploadFileToBucket(bucket: string, filename: string, s3Client: S3Client) {
+async function uploadFolderToContainer(containerClient: ContainerClient, folderName: string, prefix: string) {
+    const filenames = fs.readdirSync(folderName);
+
+    for (const filename of filenames) {
+        const filepath = path.join(folderName, filename);
+
+        if (fs.lstatSync(filepath).isDirectory()) {
+            await uploadFolderToContainer(containerClient, filepath, `${prefix}${filename}/`);
+        } else {
+            await uploadFileToContainer(containerClient, filepath, prefix);
+        }
+    }
+
+    const url = buildBlobStorageUrl(containerClient.accountName, containerClient.containerName, prefix);
+
+    return new BlobStorageLocator({ url });
+}
+
+
+async function uploadFileToBucket(s3Client: S3Client, filename: string, bucket: string, prefix: string) {
     const fileStream = fs.createReadStream(filename);
     fileStream.on("error", function (err) {
-        console.log("File Error", err);
+        log("File Error");
+        log(err);
     });
 
-    const key = path.basename(filename);
+    const key = prefix + path.basename(filename);
 
     const params: PutObjectCommandInput = {
         Bucket: bucket,
@@ -61,32 +86,44 @@ async function uploadFileToBucket(bucket: string, filename: string, s3Client: S3
     let isPresent = true;
 
     try {
-        console.log("checking if file is already present");
+        log(`checking if file ${key} is already present`);
         await s3Client.send(new HeadObjectCommand({ Bucket: params.Bucket, Key: params.Key }));
-        console.log("Already present. Not uploading again");
+        log("Already present. Not uploading again");
     } catch (error) {
         isPresent = false;
     }
 
     if (!isPresent) {
-        console.log("Not present. Uploading");
+        log("Not present. Uploading");
         await s3Client.send(new PutObjectCommand(params));
     }
-
-    // const command = new GetObjectCommand({
-    //     Bucket: params.Bucket,
-    //     Key: params.Key,
-    // });
-    // const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-
 
     const url = !s3Client.config.endpoint ? await buildS3Url(bucket, key, s3Client) : `https://${s3Client.config.endpoint}/${bucket}/${key}`;
 
     return new S3Locator({ url });
 }
 
+
+async function uploadFolderToBucket(s3Client: S3Client, folderName: string, bucket: string, prefix: string) {
+    const filenames = fs.readdirSync(folderName);
+
+    for (const filename of filenames) {
+        const filepath = path.join(folderName, filename);
+
+        if (fs.lstatSync(filepath).isDirectory()) {
+            await uploadFolderToBucket(s3Client, filepath, bucket, `${prefix}${filename}/`);
+        } else {
+            await uploadFileToBucket(s3Client, filepath, bucket, prefix);
+        }
+    }
+
+    const url = await buildS3Url(bucket, prefix, s3Client);
+
+    return new S3Locator({ url });
+}
+
 async function waitForJobCompletion(job: Job, resourceManager: ResourceManager): Promise<Job> {
-    console.log("Job is " + job.status);
+    log("Job is " + job.status);
 
     while (job.status !== JobStatus.Completed &&
            job.status !== JobStatus.Failed &&
@@ -106,7 +143,7 @@ async function waitForJobCompletion(job: Job, resourceManager: ResourceManager):
     return job;
 }
 
-async function startJob(resourceManager: ResourceManager, sourceFile: Locator, targetFile: Locator) {
+async function startJob(resourceManager: ResourceManager, sourceFolder: Locator, targetFolder: Locator) {
     let [jobProfile] = await resourceManager.query(JobProfile, { name: JOB_PROFILE });
 
     // if not found bail out
@@ -117,8 +154,8 @@ async function startJob(resourceManager: ResourceManager, sourceFile: Locator, t
     let job = new StorageJob({
         jobProfileId: jobProfile.id,
         jobInput: new JobParameterBag({
-            sourceFile,
-            targetFile
+            sourceFolder,
+            targetFolder
         }),
         tracker: new McmaTracker({
             "id": uuidv4(),
@@ -129,51 +166,37 @@ async function startJob(resourceManager: ResourceManager, sourceFile: Locator, t
     return resourceManager.create(job);
 }
 
-async function testJob(resourceManager: ResourceManager, sourceFile: Locator, targetFile: Locator) {
+async function testJob(resourceManager: ResourceManager, sourceFolder: Locator, targetFolder: Locator) {
     let job;
 
-    console.log("Creating job");
-    job = await startJob(resourceManager, sourceFile, targetFile);
+    log("Creating job");
+    job = await startJob(resourceManager, sourceFolder, targetFolder);
 
-    console.log("job.id = " + job.id);
+    log("job.id = " + job.id);
     job = await waitForJobCompletion(job, resourceManager);
 
-    console.log(JSON.stringify(job, null, 2));
+    log(JSON.stringify(job, null, 2));
 }
 
 async function testService(resourceManager: ResourceManager, locators: { [key: string]: Locator }) {
-    log("Testing copy from private S3 Bucket");
-    await testJob(resourceManager, locators["awsPrivateSource"], locators["awsTarget"]);
-
-    log("Testing copy from public S3 Bucket");
-    await testJob(resourceManager, locators["awsPublicSource"], locators["awsTarget"]);
-
-    log("Testing copy from public url");
-    await testJob(resourceManager, locators["publicSource"], locators["awsTarget"]);
-
-    log("Testing copy from private external S3 Bucket");
-    await testJob(resourceManager, locators["awsPrivateExtSource"], locators["awsTarget"]);
-
-    log("Testing copy from Azure container to S3 Bucket");
-    await testJob(resourceManager, locators["azurePrivateSource"], locators["awsTarget"]);
+    // log("Testing copy from private S3 Bucket");
+    // await testJob(resourceManager, locators["awsPrivateSource"], locators["awsTarget"]);
+    //
+    // log("Testing copy from Azure container to S3 Bucket");
+    // await testJob(resourceManager, locators["azurePrivateSource"], locators["awsTarget"]);
 
     log("Testing copy to Azure container from private Azure container");
     await testJob(resourceManager, locators["azurePrivateSource"], locators["azureTarget"]);
 
-    log("Testing copy from public url to to private Azure container");
-    await testJob(resourceManager, locators["publicSource"], locators["azureTarget"]);
-
-    log("Testing copy from private S3 Bucket to to private Azure container");
-    await testJob(resourceManager, locators["awsPrivateSource"], locators["azureTarget"]);
+    // log("Testing copy from private S3 Bucket to to private Azure container");
+    // await testJob(resourceManager, locators["awsPrivateSource"], locators["azureTarget"]);
 }
 
 async function main() {
-    console.log("Starting test service");
+    log("Starting test service");
 
     const terraformOutput = JSON.parse(fs.readFileSync(TERRAFORM_OUTPUT, "utf8"));
-    const awsPublicSourceBucket: string = `${terraformOutput.deployment_prefix.value}-public-${terraformOutput.aws_region.value}`;
     const awsPrivateSourceBucket: string = `${terraformOutput.deployment_prefix.value}-private-${terraformOutput.aws_region.value}`;
-    const awsPrivateExtSourceBucket: string = `${terraformOutput.deployment_prefix.value}-private-ext-${terraformOutput.aws_region.value}`;
     const awsTargetBucket: string = `${terraformOutput.deployment_prefix.value}-target-${terraformOutput.aws_region.value}`;
     const azureStorageAccountName: string = `${terraformOutput.deployment_prefix.value}-${terraformOutput.azure_location.value}`.replaceAll(new RegExp(/[^a-z0-9]+/, "g"), "").substring(0, 24);
     const azureStorageConnectionString: string = terraformOutput.storage_locations.value.azure_storage_accounts.find((sa: any) => sa.account === azureStorageAccountName).connection_string;
@@ -197,28 +220,24 @@ async function main() {
     };
     const azureResourceManager = new ResourceManager(azureResourceManagerConfig, new AuthProvider().add(mcmaApiKeyAuth({ apiKey })));
 
-    console.log(`Uploading media file ${MEDIA_FILE}`);
-    const awsPublicSource = await uploadFileToBucket(awsPublicSourceBucket, MEDIA_FILE, s3Client);
-    const publicSource = new Locator({ url: awsPublicSource.url });
-    const awsPrivateSource = await uploadFileToBucket(awsPrivateSourceBucket, MEDIA_FILE, s3Client);
-    const awsPrivateExtSource = await uploadFileToBucket(awsPrivateExtSourceBucket, MEDIA_FILE, s3Client);
-    const azurePrivateSource = await uploadFileToContainer(azureSourceContainerClient, MEDIA_FILE);
+    const prefix = generatePrefix();
+
+    log(`Uploading media folder  ${MEDIA_FOLDER}`);
+    const awsPrivateSource = await uploadFolderToBucket(s3Client, MEDIA_FOLDER, awsPrivateSourceBucket, prefix);
+    const azurePrivateSource = await uploadFolderToContainer(azureSourceContainerClient, MEDIA_FOLDER, prefix);
 
     const awsTarget = new S3Locator({ url: await buildS3Url(awsTargetBucket, awsPrivateSource.key, s3Client) });
     const azureTarget = new BlobStorageLocator({ url: buildBlobStorageUrl(azureTargetContainerClient.accountName, azureTargetContainerClient.containerName, azurePrivateSource.blobName) });
 
     const locators = {
-        awsPublicSource,
-        publicSource,
         awsPrivateSource,
-        awsPrivateExtSource,
         azurePrivateSource,
         awsTarget,
         azureTarget,
     };
 
-    await testService(awsResourceManager, locators);
+    // await testService(awsResourceManager, locators);
     await testService(azureResourceManager, locators);
 }
 
-main().then(() => console.log("Done")).catch(e => console.error(e));
+main().then(() => log("Done")).catch(e => console.error(e));

@@ -26,6 +26,7 @@ resource "mcma_service" "service" {
 
   job_profile_ids = [
     mcma_job_profile.copy_file.id,
+    mcma_job_profile.copy_folder.id,
   ]
 }
 
@@ -58,12 +59,12 @@ resource "mcma_job_profile" "copy_folder" {
   name = "CopyFolder"
 
   input_parameter {
-    name = "sourceFile"
+    name = "sourceFolder"
     type = "Locator"
   }
 
   input_parameter {
-    name = "sourceAlternateHost"
+    name = "sourceAlternateUrl"
     type = "string"
     optional = true
   }
@@ -75,7 +76,7 @@ resource "mcma_job_profile" "copy_folder" {
   }
 
   input_parameter {
-    name = "targetFile"
+    name = "targetFolder"
     type = "Locator"
   }
 }

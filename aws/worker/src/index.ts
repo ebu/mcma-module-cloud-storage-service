@@ -1,5 +1,5 @@
+import { captureAWSv3Client } from "aws-xray-sdk-core";
 import { Context } from "aws-lambda";
-import * as AWSXRay from "aws-xray-sdk-core";
 import { CloudWatchLogsClient } from "@aws-sdk/client-cloudwatch-logs";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { S3Client, S3ClientConfig } from "@aws-sdk/client-s3";
@@ -13,18 +13,22 @@ import { awsV4Auth } from "@mcma/aws-client";
 import { AwsSecretsManagerSecretsProvider } from "@mcma/aws-secrets-manager";
 
 import { buildWorker, WorkerContext, StorageClientFactory } from "@local/worker";
+import { LambdaClient } from "@aws-sdk/client-lambda";
+import { LambdaWorkerInvoker } from "@mcma/aws-lambda-worker-invoker";
 
-const cloudWatchLogsClient = AWSXRay.captureAWSv3Client(new CloudWatchLogsClient({}));
-const dynamoDBClient = AWSXRay.captureAWSv3Client(new DynamoDBClient({}));
-const secretsManagerClient = AWSXRay.captureAWSv3Client(new SecretsManagerClient({}));
+const cloudWatchLogsClient = captureAWSv3Client(new CloudWatchLogsClient({}));
+const dynamoDBClient = captureAWSv3Client(new DynamoDBClient({}));
+const lambdaClient = captureAWSv3Client(new LambdaClient({}));
+const secretsManagerClient = captureAWSv3Client(new SecretsManagerClient({}));
 
 const secretsProvider = new AwsSecretsManagerSecretsProvider({ client: secretsManagerClient });
 const authProvider = new AuthProvider().add(awsV4Auth()).add(mcmaApiKeyAuth({ secretsProvider }));
 const dbTableProvider = new DynamoDbTableProvider({}, dynamoDBClient);
 const loggerProvider = new AwsCloudWatchLoggerProvider("cloud-storage-service-worker", getLogGroupName(), cloudWatchLogsClient);
 const resourceManagerProvider = new ResourceManagerProvider(authProvider);
+const workerInvoker = new LambdaWorkerInvoker(lambdaClient);
 
-const buildS3Client: (config: S3ClientConfig) => S3Client = config => !config.endpoint ? AWSXRay.captureAWSv3Client(new S3Client(config)) : new S3Client(config);
+const buildS3Client: (config: S3ClientConfig) => S3Client = config => !config.endpoint ? captureAWSv3Client(new S3Client(config)) : new S3Client(config);
 
 const storageClientFactory = new StorageClientFactory({
     secretsProvider,
@@ -43,7 +47,10 @@ export async function handler(event: WorkerRequestProperties, context: Context) 
 
         const workerContext: WorkerContext = {
             requestId: context.awsRequestId,
+            secretsProvider,
             storageClientFactory,
+            timeLimit: new Date(Date.now() + context.getRemainingTimeInMillis() - 120000),
+            workerInvoker,
         };
 
         await worker.doWork(new WorkerRequest(event, logger), workerContext);

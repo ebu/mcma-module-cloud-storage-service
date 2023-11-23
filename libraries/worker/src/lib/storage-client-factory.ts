@@ -51,7 +51,7 @@ export class StorageClientFactory {
         }
     }
 
-    async getS3Client(bucket: string): Promise<S3Client> {
+    async getS3Client(bucket: string, region?: string): Promise<S3Client> {
         await this.init();
 
         const bucketConfig = this.storageClientConfig.aws[bucket];
@@ -75,7 +75,7 @@ export class StorageClientFactory {
             forcePathStyle = true;
         }
 
-        return this.config.buildS3Client({ credentials, region: bucketConfig.region, endpoint, forcePathStyle });
+        return this.config.buildS3Client({ credentials, region: region ?? bucketConfig.region, endpoint, forcePathStyle });
     }
 
     async getContainerClient(account: string, container: string): Promise<ContainerClient> {

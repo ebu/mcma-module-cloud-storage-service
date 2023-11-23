@@ -1,5 +1,4 @@
 import { APIGatewayProxyEvent, Context } from "aws-lambda";
-import * as AWSXRay from "aws-xray-sdk-core";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { LambdaClient } from "@aws-sdk/client-lambda";
 import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
@@ -10,10 +9,11 @@ import { LambdaWorkerInvoker } from "@mcma/aws-lambda-worker-invoker";
 import { ApiGatewayApiController } from "@mcma/aws-api-gateway";
 import { ConsoleLoggerProvider } from "@mcma/core";
 import { AwsSecretsManagerSecretsProvider } from "@mcma/aws-secrets-manager";
+import { captureAWSv3Client } from "aws-xray-sdk-core";
 
-const secretsManagerClient = AWSXRay.captureAWSv3Client(new SecretsManagerClient({}));
-const dynamoDBClient = AWSXRay.captureAWSv3Client(new DynamoDBClient({}));
-const lambdaClient = AWSXRay.captureAWSv3Client(new LambdaClient({}));
+const secretsManagerClient = captureAWSv3Client(new SecretsManagerClient({}));
+const dynamoDBClient = captureAWSv3Client(new DynamoDBClient({}));
+const lambdaClient = captureAWSv3Client(new LambdaClient({}));
 
 const secretsProvider = new AwsSecretsManagerSecretsProvider({ client: secretsManagerClient });
 const dbTableProvider = new DynamoDbTableProvider({}, dynamoDBClient);

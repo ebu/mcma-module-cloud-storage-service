@@ -24,36 +24,12 @@ resource "mcma_service" "service" {
 
   job_profile_ids = [
     mcma_job_profile.copy_file.id,
+    mcma_job_profile.copy_folder.id,
   ]
 }
 
 resource "mcma_job_profile" "copy_file" {
   name = "CopyFile"
-
-  input_parameter {
-    name = "sourceFile"
-    type = "Locator"
-  }
-
-  input_parameter {
-    name = "sourceAlternateHost"
-    type = "string"
-    optional = true
-  }
-
-  input_parameter {
-    name = "sourceAlternateAuthType"
-    type = "string"
-    optional = true
-  }
-
-  input_parameter {
-    name = "targetFile"
-    type = "Locator"
-  }
-}
-resource "mcma_job_profile" "copy_folder" {
-  name = "CopyFolder"
 
   input_parameter {
     name = "sourceFile"
@@ -74,6 +50,31 @@ resource "mcma_job_profile" "copy_folder" {
 
   input_parameter {
     name = "targetFile"
+    type = "Locator"
+  }
+}
+resource "mcma_job_profile" "copy_folder" {
+  name = "CopyFolder"
+
+  input_parameter {
+    name = "sourceFolder"
+    type = "Locator"
+  }
+
+  input_parameter {
+    name = "sourceAlternateUrl"
+    type = "string"
+    optional = true
+  }
+
+  input_parameter {
+    name = "sourceAlternateAuthType"
+    type = "string"
+    optional = true
+  }
+
+  input_parameter {
+    name = "targetFolder"
     type = "Locator"
   }
 }

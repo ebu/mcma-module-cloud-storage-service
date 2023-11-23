@@ -126,16 +126,16 @@ variable "azure_storage_accounts" {
 # Configuration for copy to AWS S3
 ####################################
 
-variable "aws_s3_copy_max_concurrency" {
+variable "max_concurrency" {
   type        = number
-  description = "Set number of max concurrency while doing copy between S3 buckets"
-  default     = 16
+  description = "Set number of max concurrent transfers"
+  default     = 32
 }
 
-variable "aws_url_copy_max_concurrency" {
+variable "multipart_size" {
   type        = number
-  description = "Set number of max concurrency while doing copy from url to S3 buckets"
-  default     = 8
+  description = "Set multipart size for files bigger than this value"
+  default     = 67108864   // 64MiB
 }
 
 variable "worker_function_timeout" {

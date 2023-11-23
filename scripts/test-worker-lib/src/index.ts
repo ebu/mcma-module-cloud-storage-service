@@ -1,12 +1,13 @@
 import * as path from "path";
 import * as fs from "fs";
-import { ConsoleLogger, LocatorStatus, Logger, Utils } from "@mcma/core";
+import { ConsoleLogger, LocatorStatus, Logger, McmaException, Utils } from "@mcma/core";
 import { ContainerClient } from "@azure/storage-blob";
 import { BlobStorageLocator, buildBlobStorageUrl } from "@mcma/azure-blob-storage";
 import { S3Helper } from "./s3-helper";
 import { S3Client } from "@aws-sdk/client-s3";
 import { buildS3Url, S3Locator } from "@mcma/aws-s3";
-import { doCopyFile, SourceFile, TargetFile } from "@local/worker";
+import { SourceFile, TargetFile } from "@local/worker";
+import { FileCopier } from "@local/worker";
 import * as mime from "mime-types";
 
 const TERRAFORM_OUTPUT = "../../deployment/terraform.output.json";
@@ -28,9 +29,24 @@ logger.warn = log;
 logger.error = log;
 
 const containerClients: { [account: string]: { [container: string]: ContainerClient } } = {};
-const s3Clients: { [bucket: string]: S3Client } = {};
 
-const getS3Client = async (bucket: string) => s3Clients[bucket];
+const getS3Client = async (bucket: string, region?: string) => {
+    switch (bucket) {
+        case s3BucketEuWest1.bucket:
+            return  new S3Client({
+                credentials: { accessKeyId: s3BucketEuWest1.access_key, secretAccessKey: s3BucketEuWest1.secret_key },
+                region: region ?? s3BucketEuWest1.region
+            });
+        case s3BucketUsEast1.bucket:
+            return new S3Client({
+                credentials: { accessKeyId: s3BucketUsEast1.access_key, secretAccessKey: s3BucketUsEast1.secret_key },
+                region: region ?? s3BucketUsEast1.region
+            });
+        default:
+            throw new McmaException(`No config found for bucket '${bucket}'`)
+    }
+};
+
 const getContainerClient = async (account: string, container: string) => containerClients[account][container];
 
 const s3Helper = new S3Helper({
@@ -43,8 +59,15 @@ let s3BucketUsEast1: { bucket: string, region: string, access_key: string, secre
 let s3BucketEuWest1: { bucket: string, region: string, access_key: string, secret_key: string };
 
 function generatePrefix() {
-    return `gmam-test/${new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").substring(0, 15)}/`;
+    return `${new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").substring(0, 15)}/`;
 }
+
+const progressUpdate = async (filesTotal: number, filesCopied: number, bytesTotal: number, bytesCopied: number) => {
+    if (bytesTotal > 0) {
+        const percentage = Math.round((bytesCopied / bytesTotal * 100 + Number.EPSILON) * 10) / 10;
+        logger.info(`${percentage}%`);
+    }
+};
 
 async function uploadFileToContainer(filename: string, containerClient: ContainerClient, prefix: string) {
     const blobName = prefix + path.basename(filename);
@@ -69,7 +92,7 @@ async function uploadFileToBucket(filename: string, bucket: string, prefix: stri
     if (await s3Helper.exists(bucket, key)) {
         log("Already present. Not uploading again");
     } else {
-        log("Not present. Uploading");
+        log(`Not present. Uploading ${key} to ${bucket}`);
         await s3Helper.upload(filename, bucket, key);
     }
 
@@ -88,22 +111,62 @@ async function testCopyFromS3ToS3SmallFile() {
 
     const targetFile: TargetFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.key, s3BucketEuWest1.region) }) };
 
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
+    const fileCopier = new FileCopier({
+        logger,
+        maxConcurrency: 8,
+        getS3Client,
+        getContainerClient,
+        progressUpdate,
+    });
+
+    fileCopier.addFile(sourceFile, targetFile);
+    await fileCopier.runUntil(new Date(Date.now() + 60000));
 }
 
 async function testCopyFromS3ToS3BigFile() {
     log("testCopyFromS3ToS3BigFile()");
 
-    const prefix = generatePrefix();
+    const prefix = "20231122-150901/" //generatePrefix();
 
     const sourceLocator = await uploadFileToBucket(BIG_FILE, s3BucketUsEast1.bucket, prefix);
     const sourceFile: SourceFile = { locator: sourceLocator };
 
     const targetFile: TargetFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.key, s3BucketEuWest1.region) }) };
 
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
+    const fileCopier = new FileCopier({
+        logger,
+        maxConcurrency: 8,
+        getS3Client,
+        getContainerClient,
+        progressUpdate,
+    });
+
+    fileCopier.addFile(sourceFile, targetFile);
+    await fileCopier.runUntil(new Date(Date.now() + 30000));
+    const workItems = fileCopier.getWorkItems();
+
+    log("Pausing");
+    log(`${workItems.length} work items left`);
+    log(workItems);
+
+    await Utils.sleep(5000);
+
+    const fileCopier2 = new FileCopier({
+        logger,
+        maxConcurrency: 8,
+        getS3Client,
+        getContainerClient,
+        progressUpdate,
+    });
+    fileCopier2.setWorkItems(workItems);
+
+    log("Continuing");
+    await fileCopier2.runUntil(new Date(Date.now() + 60000));
+
+    const workItems2 = fileCopier2.getWorkItems();
+    log("Pausing");
+    log(`${workItems2.length} work items left`);
+
 }
 
 async function testCopyFromBlobStorageToBlobStorageSmallFile() {
@@ -116,25 +179,63 @@ async function testCopyFromBlobStorageToBlobStorageSmallFile() {
 
     const targetFile: TargetFile = { locator: new BlobStorageLocator({ url: buildBlobStorageUrl(azureEastUsContainerStorageAccount.account, "target", sourceLocator.blobName) }) };
 
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
+    const fileCopier = new FileCopier({
+        logger,
+        maxConcurrency: 8,
+        getS3Client,
+        getContainerClient,
+        progressUpdate,
+    });
+
+    fileCopier.addFile(sourceFile, targetFile);
+    await fileCopier.runUntil(new Date(Date.now() + 60000));
 }
 
 
 async function testCopyFromBlobStorageToBlobStorageBigFile() {
     log("testCopyFromBlobStorageToBlobStorageBigFile()");
 
-    const prefix = "gmam-test/20231110-220458/";//generatePrefix();
+    const prefix = generatePrefix();
 
     const sourceLocator = await uploadFileToContainer(BIG_FILE, containerClients[azureWestEuropeStorageAccount.account]["source"], prefix);
     const sourceFile: SourceFile = { locator: sourceLocator };
 
     const targetFile: TargetFile = { locator: new BlobStorageLocator({ url: buildBlobStorageUrl(azureEastUsContainerStorageAccount.account, "target", sourceLocator.blobName) }) };
 
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
-}
+    const fileCopier = new FileCopier({
+        logger,
+        maxConcurrency: 8,
+        getS3Client,
+        getContainerClient,
+        progressUpdate,
+    });
 
+    fileCopier.addFile(sourceFile, targetFile);
+    await fileCopier.runUntil(new Date(Date.now() + 30000));
+
+    await Utils.sleep(5000);
+    const workItems = fileCopier.getWorkItems();
+
+    log("Pausing");
+    log(`${workItems.length} work items left`);
+    log(workItems);
+
+    const fileCopier2 = new FileCopier({
+        logger,
+        maxConcurrency: 8,
+        getS3Client,
+        getContainerClient,
+        progressUpdate,
+    });
+    fileCopier2.setWorkItems(workItems);
+
+    log("Continuing");
+    await fileCopier2.runUntil(new Date(Date.now() + 60000));
+
+    const workItems2 = fileCopier2.getWorkItems();
+    log("Pausing");
+    log(`${workItems2.length} work items left`);
+}
 
 async function testCopyFromBlobStorageToS3SmallFile() {
     log("testCopyFromBlobStorageToS3SmallFile()");
@@ -146,22 +247,61 @@ async function testCopyFromBlobStorageToS3SmallFile() {
 
     const targetFile: TargetFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.blobName, s3BucketEuWest1.region) }) };
 
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
+    const fileCopier = new FileCopier({
+        logger,
+        maxConcurrency: 8,
+        getS3Client,
+        getContainerClient,
+        progressUpdate,
+    });
+
+    fileCopier.addFile(sourceFile, targetFile);
+    await fileCopier.runUntil(new Date(Date.now() + 60000));
 }
 
 async function testCopyFromBlobStorageToS3BigFile() {
     log("testCopyFromBlobStorageToS3BigFile()");
 
-    const prefix = "gmam-test/20231114-175359/";//generatePrefix();
+    const prefix = generatePrefix();
 
     const sourceLocator = await uploadFileToContainer(BIG_FILE, containerClients[azureWestEuropeStorageAccount.account]["source"], prefix);
     const sourceFile: SourceFile = { locator: sourceLocator };
 
     const targetFile: TargetFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.blobName, s3BucketEuWest1.region) }) };
 
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
-    await doCopyFile(logger, sourceFile, targetFile, getS3Client, getContainerClient);
+    const fileCopier = new FileCopier({
+        logger,
+        maxConcurrency: 8,
+        getS3Client,
+        getContainerClient,
+        progressUpdate,
+    });
+
+    fileCopier.addFile(sourceFile, targetFile);
+    await fileCopier.runUntil(new Date(Date.now() + 30000));
+
+    await Utils.sleep(5000);
+    const workItems = fileCopier.getWorkItems();
+
+    log("Pausing");
+    log(`${workItems.length} work items left`);
+    log(workItems);
+
+    const fileCopier2 = new FileCopier({
+        logger,
+        maxConcurrency: 8,
+        getS3Client,
+        getContainerClient,
+        progressUpdate,
+    });
+    fileCopier2.setWorkItems(workItems);
+
+    log("Continuing");
+    await fileCopier2.runUntil(new Date(Date.now() + 60000));
+
+    const workItems2 = fileCopier2.getWorkItems();
+    log("Pausing");
+    log(`${workItems2.length} work items left`);
 }
 
 
@@ -183,27 +323,16 @@ async function main() {
     containerClients[azureEastUsContainerStorageAccount.account]["target"] = new ContainerClient(azureEastUsContainerStorageAccount.connection_string, "target");
 
     s3BucketUsEast1 = terraformOutput.storage_locations.value.aws_s3_buckets.find((s: any) => s.region === "us-east-1");
-    s3Clients[s3BucketUsEast1.bucket] = new S3Client({
-        credentials: { accessKeyId: s3BucketUsEast1.access_key, secretAccessKey: s3BucketUsEast1.secret_key },
-        region: s3BucketUsEast1.region
-    });
-
     s3BucketEuWest1 = terraformOutput.storage_locations.value.aws_s3_buckets.find((s: any) => s.region === "eu-west-1");
-    s3Clients[s3BucketEuWest1.bucket] = new S3Client({
-        credentials: { accessKeyId: s3BucketEuWest1.access_key, secretAccessKey: s3BucketEuWest1.secret_key },
-        region: s3BucketEuWest1.region
-    });
 
-    // await testCopyFromS3ToS3SmallFile();
+    await testCopyFromS3ToS3SmallFile();
     // await testCopyFromS3ToS3BigFile();
 
     // await testCopyFromBlobStorageToBlobStorageSmallFile()
     // await testCopyFromBlobStorageToBlobStorageBigFile();
 
     // await testCopyFromBlobStorageToS3SmallFile();
-    await testCopyFromBlobStorageToS3BigFile();
-
-
+    // await testCopyFromBlobStorageToS3BigFile();
 }
 
-main().catch(console.error);
+main().then(() => log("Done")).catch(console.error);
