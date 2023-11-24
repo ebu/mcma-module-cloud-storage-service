@@ -29,7 +29,7 @@ export interface FileCopierConfig {
     multipartSize?: number;
     getS3Client: (bucket: string, region?: string) => Promise<S3Client>;
     getContainerClient: (account: string, container: string) => Promise<ContainerClient>;
-    progressUpdate?: (filesTotal: number, filesCopied: number, bytesTotal: number, bytesCopied: number) => Promise<void>
+    progressUpdate?: (filesTotal: number, filesCopied: number, bytesTotal: number, bytesCopied: number) => Promise<void>;
     axiosConfig?: AxiosRequestConfig;
     logger: Logger;
     apiKey?: string;
@@ -696,7 +696,7 @@ export class FileCopier {
                     const containerClient = await this.config.getContainerClient(workItem.targetFile.locator.account, workItem.targetFile.locator.container);
                     const blobClient = containerClient.getBlockBlobClient(workItem.targetFile.locator.blobName);
                     const blockIds = workItem.multipartData.segments.sort((a, b) => a.partNumber - b.partNumber).map(s => s.blockId);
-                    await blobClient.commitBlockList(blockIds);
+                    await blobClient.commitBlockList(blockIds, { blobHTTPHeaders: { blobContentType: workItem.contentType } });
                 } else {
                     throw new McmaException(`Unsupported locator type '${workItem.targetFile.locator["@type"]}'`);
                 }
