@@ -3,10 +3,10 @@ import { ListObjectsV2Command, ListObjectsV2CommandInput } from "@aws-sdk/client
 import { Locator, McmaException, ProblemDetail, StorageJob } from "@mcma/core";
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
-import { buildS3Url, S3Locator } from "@mcma/aws-s3";
-import { BlobStorageLocator, buildBlobStorageUrl } from "@mcma/azure-blob-storage";
+import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
+import { BlobStorageLocator, buildBlobStorageUrl, isBlobStorageLocator } from "@mcma/azure-blob-storage";
 
-import { FileCopier, isBlobStorageLocator, isS3Locator, SourceFile, TargetFile } from "../operations";
+import { FileCopier, SourceFile, TargetFile } from "../operations";
 import { WorkerContext } from "../worker-context";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
