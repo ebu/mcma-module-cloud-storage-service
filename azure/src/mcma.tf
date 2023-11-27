@@ -39,13 +39,13 @@ resource "mcma_job_profile" "copy_file" {
   }
 
   input_parameter {
-    name = "sourceAlternateUrl"
+    name = "sourceEgressUrl"
     type = "string"
     optional = true
   }
 
   input_parameter {
-    name = "sourceAlternateAuthType"
+    name = "sourceEgressAuthType"
     type = "string"
     optional = true
   }
@@ -64,13 +64,13 @@ resource "mcma_job_profile" "copy_folder" {
   }
 
   input_parameter {
-    name = "sourceAlternateUrl"
+    name = "sourceEgressUrl"
     type = "string"
     optional = true
   }
 
   input_parameter {
-    name = "sourceAlternateAuthType"
+    name = "sourceEgressAuthType"
     type = "string"
     optional = true
   }

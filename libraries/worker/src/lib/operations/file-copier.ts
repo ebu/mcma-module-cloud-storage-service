@@ -250,10 +250,10 @@ export class FileCopier {
                 let contentType: string = undefined;
                 let lastModified: Date = undefined;
 
-                if (workItem.sourceFile.alternateUrl) {
-                    // in case we have an alternateUrl, we will use that one.
-                    sourceUrl = workItem.sourceFile.alternateUrl;
-                    if (workItem.sourceFile.alternateAuthType === "McmaApiKey") {
+                if (workItem.sourceFile.egressUrl) {
+                    // in case we have an egressUrl, we will use that one.
+                    sourceUrl = workItem.sourceFile.egressUrl;
+                    if (workItem.sourceFile.egressAuthType === "McmaApiKey") {
                         // in case we have McmaApiKey authentication add the correct header
                         if (!this.config.apiKey) {
                             if (!this.config.secretsProvider) {

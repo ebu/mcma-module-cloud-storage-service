@@ -2,8 +2,8 @@ import { Locator } from "@mcma/core";
 
 export interface SourceFile {
     locator: Locator;
-    alternateUrl?: string;
-    alternateAuthType?: string;
+    egressUrl?: string;
+    egressAuthType?: string;
 }
 
 export interface TargetFile {

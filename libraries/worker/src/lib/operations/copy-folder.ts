@@ -41,8 +41,8 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
 
     const sourceFile: SourceFile = {
         locator: sourceLocator,
-        alternateUrl: jobInput.alternateUrl,
-        alternateAuthType: jobInput.alternateAuthType,
+        egressUrl: jobInput.sourceEgressUrl,
+        egressAuthType: jobInput.sourceEgressAuthType,
     };
     const targetFile: TargetFile = {
         locator: targetLocator
@@ -105,8 +105,8 @@ async function scanSourceFolder(sourceFolder: SourceFile, targetFolder: TargetFi
                     locator: new S3Locator({
                         url: await buildS3Url(sourceFolder.locator.bucket, content.Key, sourceFolder.locator.region)
                     }),
-                    alternateUrl: sourceFolder.alternateUrl ? sourceFolder.alternateUrl + content.Key.substring(sourceFolder.locator.key.length) : undefined,
-                    alternateAuthType: sourceFolder.alternateAuthType,
+                    egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + content.Key.substring(sourceFolder.locator.key.length) : undefined,
+                    egressAuthType: sourceFolder.egressAuthType,
                 };
 
                 let targetFile: TargetFile;
@@ -136,8 +136,8 @@ async function scanSourceFolder(sourceFolder: SourceFile, targetFolder: TargetFi
                 locator: new BlobStorageLocator({
                     url: buildBlobStorageUrl(sourceFolder.locator.account, sourceFolder.locator.container, blob.name)
                 }),
-                alternateUrl: sourceFolder.alternateUrl ? sourceFolder.alternateUrl + blob.name.substring(sourceFolder.locator.blobName.length) : undefined,
-                alternateAuthType: sourceFolder.alternateAuthType,
+                egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + blob.name.substring(sourceFolder.locator.blobName.length) : undefined,
+                egressAuthType: sourceFolder.egressAuthType,
             };
 
             let targetFile: TargetFile;
