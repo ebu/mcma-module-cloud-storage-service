@@ -17,9 +17,10 @@ import { BlobSASPermissions, ContainerClient } from "@azure/storage-blob";
 import { Logger, McmaException, Utils } from "@mcma/core";
 import { SecretsProvider } from "@mcma/secrets";
 import { getApiKeySecretId } from "@mcma/client";
+import { isS3Locator } from "@mcma/aws-s3";
+import { isBlobStorageLocator } from "@mcma/azure-blob-storage";
 
 import { ActiveWorkItem, MultipartSegment, SourceFile, TargetFile, WorkItem, WorkType } from "./model";
-import { isBlobStorageLocator, isS3Locator } from "./utils";
 
 const MAX_CONCURRENCY = 32;
 const MULTIPART_SIZE = 67108864; // 64MiB
