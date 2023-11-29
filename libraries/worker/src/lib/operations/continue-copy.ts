@@ -1,4 +1,4 @@
-import { ProblemDetail } from "@mcma/core";
+import { ProblemDetail, Utils } from "@mcma/core";
 import { getTableName } from "@mcma/data";
 import { ProcessJobAssignmentHelper, ProviderCollection, WorkerRequest } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
@@ -45,6 +45,7 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
 
         const result = await table.get<{workItems: WorkItem[]}>(workItemsDatabaseId);
         if (!result) {
+            logger.error("Failed to retrieve remaining work items from database. Failing Job");
             await jobAssignmentHelper.fail(new ProblemDetail({
                 type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/generic-failure",
                 title: "Generic failure",
@@ -60,6 +61,8 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
 
         const error = fileCopier.getError();
         if (error) {
+            logger.error("Failing job as copy resulted in a failure");
+            logger.error(error);
             await jobAssignmentHelper.fail(new ProblemDetail({
                 type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/copy-failure",
                 title: "Copy failure",
@@ -84,6 +87,8 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             return;
         }
 
+        await Utils.sleep(1000);
+        logger.info("Copy was a success, marking job as Completed");
         await jobAssignmentHelper.complete();
     } catch (error) {
         logger.error(error);

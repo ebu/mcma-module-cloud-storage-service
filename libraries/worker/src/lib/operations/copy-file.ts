@@ -1,4 +1,4 @@
-import { Locator, ProblemDetail, StorageJob } from "@mcma/core";
+import { Locator, ProblemDetail, StorageJob, Utils } from "@mcma/core";
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
@@ -50,6 +50,8 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
 
     const error = fileCopier.getError();
     if (error) {
+        logger.error("Failing job as copy resulted in a failure");
+        logger.error(error);
         await jobAssignmentHelper.fail(new ProblemDetail({
             type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/copy-failure",
             title: "Copy failure",
@@ -75,5 +77,7 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
         return;
     }
 
+    await Utils.sleep(1000);
+    logger.info("Copy was a success, marking job as Completed");
     await jobAssignmentHelper.complete();
 }

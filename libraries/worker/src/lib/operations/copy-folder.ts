@@ -1,6 +1,6 @@
 import { ListObjectsV2Command, ListObjectsV2CommandInput } from "@aws-sdk/client-s3";
 
-import { Locator, McmaException, ProblemDetail, StorageJob } from "@mcma/core";
+import { Locator, McmaException, ProblemDetail, StorageJob, Utils } from "@mcma/core";
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
@@ -59,6 +59,8 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
 
     const error = fileCopier.getError();
     if (error) {
+        logger.error("Failing job as copy resulted in a failure");
+        logger.error(error);
         await jobAssignmentHelper.fail(new ProblemDetail({
             type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/copy-failure",
             title: "Copy failure",
@@ -84,6 +86,8 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
         return;
     }
 
+    await Utils.sleep(1000);
+    logger.info("Copy was a success, marking job as Completed");
     await jobAssignmentHelper.complete();
 }
 
