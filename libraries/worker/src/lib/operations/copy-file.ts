@@ -16,9 +16,12 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
 
     const progressUpdate = async (filesTotal: number, filesCopied: number, bytesTotal: number, bytesCopied: number) => {
         if (bytesTotal > 0) {
-            const percentage = Math.round((bytesCopied / bytesTotal * 100 + Number.EPSILON) * 10) / 10;
-            logger.info(`${percentage}%`);
-            await jobAssignmentHelper.updateJobAssignment(jobAssigment => jobAssigment.progress = percentage, true);
+            const progress = Math.round((bytesCopied / bytesTotal * 100 + Number.EPSILON) * 10) / 10;
+            logger.info(`${progress}%`);
+
+            if (typeof jobAssignmentHelper.jobAssignment.progress !== "number" || Math.abs(jobAssignmentHelper.jobAssignment.progress - progress) > 0.5) {
+                await jobAssignmentHelper.updateJobAssignment(jobAssigment => jobAssigment.progress = progress, true);
+            }
         }
     };
 
