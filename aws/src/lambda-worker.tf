@@ -88,6 +88,12 @@ resource "aws_iam_role_policy" "worker" {
         ]
       },
       {
+        Sid      = "AllowInvokingWorkerLambda"
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.lambda_name_worker}"
+      },
+      {
         Sid      = "AllowReadingApiKey"
         Effect   = "Allow"
         Action   = "secretsmanager:GetSecretValue"
@@ -174,6 +180,7 @@ resource "aws_lambda_function" "worker" {
       MCMA_PUBLIC_URL                 = local.service_url
       MCMA_SERVICE_REGISTRY_URL       = var.service_registry.service_url
       MCMA_SERVICE_REGISTRY_AUTH_TYPE = var.service_registry.auth_type
+      MCMA_WORKER_FUNCTION_ID         = local.lambda_name_worker
       MCMA_API_KEY_SECRET_ID          = aws_secretsmanager_secret.api_key.name
       STORAGE_CLIENT_CONFIG_SECRET_ID = aws_secretsmanager_secret.storage_client_config.name
       STORAGE_CLIENT_CONFIG_HASH      = sha256(aws_secretsmanager_secret_version.storage_client_config.secret_string)

@@ -93,7 +93,6 @@ resource "aws_iam_role_policy" "api_handler" {
         Action   = "lambda:InvokeFunction"
         Resource = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.lambda_name_worker}"
       },
-
       {
         Sid      = "AllowReadingApiKey"
         Effect   = "Allow"
