@@ -4,7 +4,8 @@ import { ProcessJobAssignmentHelper, ProviderCollection, WorkerRequest } from "@
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
 import { WorkerContext } from "../worker-context";
-import { FileCopier, WorkItem } from "../operations";
+import { FileCopier } from "../operations";
+import { loadFileCopierState, saveFileCopierState } from "./utils";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 
@@ -16,9 +17,8 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
     );
 
     const logger = jobAssignmentHelper.logger;
-    const table = jobAssignmentHelper.dbTable;
 
-    const { workItemsDatabaseId } = workerRequest.input;
+    const { fileCopierStateDatabaseIds } = workerRequest.input;
 
     try {
         await jobAssignmentHelper.initialize();
@@ -46,8 +46,9 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             progressUpdate,
         });
 
-        const result = await table.get<{workItems: WorkItem[]}>(workItemsDatabaseId);
-        if (!result) {
+        const state = await loadFileCopierState(fileCopierStateDatabaseIds, jobAssignmentHelper.dbTable);
+
+        if (!state.workItems.length) {
             logger.error("Failed to retrieve remaining work items from database. Failing Job");
             await jobAssignmentHelper.fail(new ProblemDetail({
                 type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/generic-failure",
@@ -56,9 +57,9 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             }));
             return;
         }
-        await table.delete(workItemsDatabaseId);
 
-        fileCopier.setWorkItems(result.workItems);
+        logger.info(`Loaded ${state.workItems.length} work items`);
+        fileCopier.setState(state);
 
         await fileCopier.runUntil(ctx.timeLimit);
 
@@ -74,16 +75,18 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             return;
         }
 
-        const workItems = fileCopier.getWorkItems();
-        if (workItems.length > 0) {
-            logger.info(`${workItems.length} work items remaining. Invoking worker again`);
+        const state2 = fileCopier.getState();
+        if (state2.workItems.length > 0) {
+            logger.info(`${state2.workItems.length} work items remaining. Storing FileCopierState`);
             const jobAssignmentDatabaseId = jobAssignmentHelper.jobAssignmentDatabaseId;
-            await jobAssignmentHelper.dbTable.put(workItemsDatabaseId, { workItems });
+            const fileCopierStateDatabaseIds = await saveFileCopierState(state2, jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
+
+            logger.info(`Invoking worker again`);
             await ctx.workerInvoker.invoke(getWorkerFunctionId(), {
                 operationName: "ContinueCopy",
                 input: {
                     jobAssignmentDatabaseId,
-                    workItemsDatabaseId,
+                    fileCopierStateDatabaseIds,
                 },
                 tracker: jobAssignmentHelper.workerRequest.tracker
             });

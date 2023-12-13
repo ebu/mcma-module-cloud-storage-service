@@ -24,7 +24,7 @@ const worker = buildWorker(dbTableProvider, loggerProvider, resourceManagerProvi
 
 export const handler: AzureFunction = async (context: Context) => {
     const queueMessage = context.bindings.queueMessage;
-    const logger = await loggerProvider.get(context.invocationId);
+    const logger = await loggerProvider.get(context.invocationId, queueMessage.tracker);
 
     try {
         logger.functionStart(context.invocationId);
@@ -34,7 +34,7 @@ export const handler: AzureFunction = async (context: Context) => {
         // assume 5 mins function timeout, so we stop in 3 mins from now
         let timeLimit = new Date(Date.now() + 180000);
 
-        logger.info(process.env.AzureFunctionsJobHost__functionTimeout);
+        logger.info("AzureFunctionsJobHost__functionTimeout = " + process.env.AzureFunctionsJobHost__functionTimeout);
         const functionTimeout = process.env.AzureFunctionsJobHost__functionTimeout;
         if (functionTimeout) {
             const parts = functionTimeout.split(":");

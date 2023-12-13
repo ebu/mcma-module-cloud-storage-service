@@ -8,6 +8,7 @@ import { BlobStorageLocator, buildBlobStorageUrl, isBlobStorageLocator } from "@
 
 import { FileCopier, SourceFile, TargetFile } from "../operations";
 import { WorkerContext } from "../worker-context";
+import { saveFileCopierState } from "./utils";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 
@@ -72,17 +73,18 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
         return;
     }
 
-    const workItems = fileCopier.getWorkItems();
-    if (workItems.length > 0) {
-        logger.info(`${workItems.length} work items remaining. Invoking worker again`);
+    const state = fileCopier.getState();
+    if (state.workItems.length > 0) {
+        logger.info(`${state.workItems.length} work items remaining. Storing FileCopierState`);
         const jobAssignmentDatabaseId = jobAssignmentHelper.jobAssignmentDatabaseId;
-        const workItemsDatabaseId = jobAssignmentDatabaseId + "/work-items";
-        await jobAssignmentHelper.dbTable.put(workItemsDatabaseId, { workItems });
+        const fileCopierStateDatabaseIds = await saveFileCopierState(state, jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
+
+        logger.info(`Invoking worker again`);
         await ctx.workerInvoker.invoke(getWorkerFunctionId(), {
             operationName: "ContinueCopy",
             input: {
                 jobAssignmentDatabaseId,
-                workItemsDatabaseId,
+                fileCopierStateDatabaseIds,
             },
             tracker: jobAssignmentHelper.workerRequest.tracker
         });

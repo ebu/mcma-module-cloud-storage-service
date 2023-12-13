@@ -25,6 +25,14 @@ import { ActiveWorkItem, MultipartSegment, SourceFile, TargetFile, WorkItem, Wor
 const MAX_CONCURRENCY = 32;
 const MULTIPART_SIZE = 67108864; // 64MiB
 
+export interface FileCopierState {
+    filesTotal: number;
+    filesCopied: number;
+    bytesTotal: number;
+    bytesCopied: number;
+    workItems: WorkItem[];
+}
+
 export interface FileCopierConfig {
     maxConcurrency?: number;
     multipartSize?: number;
@@ -65,8 +73,8 @@ export class FileCopier {
         this.multipartSize = this.config.multipartSize >= 5242880 && this.config.multipartSize <= 4194304000 ? this.config.multipartSize : MULTIPART_SIZE; // min limit AWS and max limit blob storage
     }
 
-    public setWorkItems(workItems: WorkItem[]) {
-        const copyWorkItems = JSON.parse(JSON.stringify(workItems)) as WorkItem[];
+    public setState(state: FileCopierState) {
+        const copyWorkItems = JSON.parse(JSON.stringify(state.workItems)) as WorkItem[];
 
         const multipartCompleteWorkItems = copyWorkItems.filter(w => w.type === WorkType.MultipartComplete);
         const multipartCompleteWorkItemsMap: { [key: string]: WorkItem } = {};
@@ -85,11 +93,21 @@ export class FileCopier {
             }
         }
 
+        this.bytesTotal = state.bytesTotal;
+        this.bytesCopied = state.bytesCopied;
+        this.filesTotal = state.filesTotal;
+        this.filesCopied = state.filesCopied;
         this.queuedWorkItems.push(...copyWorkItems);
     }
 
-    public getWorkItems(): WorkItem[] {
-        return JSON.parse(JSON.stringify(this.queuedWorkItems)) as WorkItem[];
+    public getState(): FileCopierState {
+        return {
+            bytesTotal: this.bytesTotal,
+            bytesCopied: this.bytesCopied,
+            filesTotal: this.filesTotal,
+            filesCopied: this.filesCopied,
+            workItems: JSON.parse(JSON.stringify(this.queuedWorkItems)) as WorkItem[]
+        };
     }
 
     public addFile(sourceFile: SourceFile, targetFile: TargetFile) {

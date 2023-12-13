@@ -33,7 +33,7 @@ const containerClients: { [account: string]: { [container: string]: ContainerCli
 const getS3Client = async (bucket: string, region?: string) => {
     switch (bucket) {
         case s3BucketEuWest1.bucket:
-            return  new S3Client({
+            return new S3Client({
                 credentials: { accessKeyId: s3BucketEuWest1.access_key, secretAccessKey: s3BucketEuWest1.secret_key },
                 region: region ?? s3BucketEuWest1.region
             });
@@ -43,7 +43,7 @@ const getS3Client = async (bucket: string, region?: string) => {
                 region: region ?? s3BucketUsEast1.region
             });
         default:
-            throw new McmaException(`No config found for bucket '${bucket}'`)
+            throw new McmaException(`No config found for bucket '${bucket}'`);
     }
 };
 
@@ -126,7 +126,7 @@ async function testCopyFromS3ToS3SmallFile() {
 async function testCopyFromS3ToS3BigFile() {
     log("testCopyFromS3ToS3BigFile()");
 
-    const prefix = "20231122-150901/" //generatePrefix();
+    const prefix = "20231122-150901/"; //generatePrefix();
 
     const sourceLocator = await uploadFileToBucket(BIG_FILE, s3BucketUsEast1.bucket, prefix);
     const sourceFile: SourceFile = { locator: sourceLocator };
@@ -143,11 +143,11 @@ async function testCopyFromS3ToS3BigFile() {
 
     fileCopier.addFile(sourceFile, targetFile);
     await fileCopier.runUntil(new Date(Date.now() + 30000));
-    const workItems = fileCopier.getWorkItems();
+    const state = fileCopier.getState();
 
     log("Pausing");
-    log(`${workItems.length} work items left`);
-    log(workItems);
+    log(`${state.workItems.length} work items left`);
+    log(state);
 
     await Utils.sleep(5000);
 
@@ -158,14 +158,14 @@ async function testCopyFromS3ToS3BigFile() {
         getContainerClient,
         progressUpdate,
     });
-    fileCopier2.setWorkItems(workItems);
+    fileCopier2.setState(state);
 
     log("Continuing");
     await fileCopier2.runUntil(new Date(Date.now() + 60000));
 
-    const workItems2 = fileCopier2.getWorkItems();
+    const state2 = fileCopier2.getState();
     log("Pausing");
-    log(`${workItems2.length} work items left`);
+    log(`${state2.workItems.length} work items left`);
 
 }
 
@@ -214,11 +214,11 @@ async function testCopyFromBlobStorageToBlobStorageBigFile() {
     await fileCopier.runUntil(new Date(Date.now() + 30000));
 
     await Utils.sleep(5000);
-    const workItems = fileCopier.getWorkItems();
+    const state = fileCopier.getState();
 
     log("Pausing");
-    log(`${workItems.length} work items left`);
-    log(workItems);
+    log(`${state.workItems.length} work items left`);
+    log(state);
 
     const fileCopier2 = new FileCopier({
         logger,
@@ -227,14 +227,14 @@ async function testCopyFromBlobStorageToBlobStorageBigFile() {
         getContainerClient,
         progressUpdate,
     });
-    fileCopier2.setWorkItems(workItems);
+    fileCopier2.setState(state);
 
     log("Continuing");
     await fileCopier2.runUntil(new Date(Date.now() + 60000));
 
-    const workItems2 = fileCopier2.getWorkItems();
+    const state2 = fileCopier2.getState();
     log("Pausing");
-    log(`${workItems2.length} work items left`);
+    log(`${state2.workItems.length} work items left`);
 }
 
 async function testCopyFromBlobStorageToS3SmallFile() {
@@ -281,11 +281,11 @@ async function testCopyFromBlobStorageToS3BigFile() {
     await fileCopier.runUntil(new Date(Date.now() + 30000));
 
     await Utils.sleep(5000);
-    const workItems = fileCopier.getWorkItems();
+    const state = fileCopier.getState();
 
     log("Pausing");
-    log(`${workItems.length} work items left`);
-    log(workItems);
+    log(`${state.workItems.length} work items left`);
+    log(state);
 
     const fileCopier2 = new FileCopier({
         logger,
@@ -294,14 +294,14 @@ async function testCopyFromBlobStorageToS3BigFile() {
         getContainerClient,
         progressUpdate,
     });
-    fileCopier2.setWorkItems(workItems);
+    fileCopier2.setState(state);
 
     log("Continuing");
     await fileCopier2.runUntil(new Date(Date.now() + 60000));
 
-    const workItems2 = fileCopier2.getWorkItems();
+    const state2 = fileCopier2.getState();
     log("Pausing");
-    log(`${workItems2.length} work items left`);
+    log(`${state2.workItems.length} work items left`);
 }
 
 
