@@ -143,3 +143,9 @@ variable "worker_function_timeout" {
   description = "Set the timeout for the worker function. Valid values depend on chosen app service plan"
   default     = "00:10:00"
 }
+
+variable "function_elastic_instance_minimum" {
+  type        = number
+  description = "Set the minimum instance number for azure functions when using premium plan"
+  default     = null
+}
