@@ -325,10 +325,10 @@ async function main() {
     s3BucketUsEast1 = terraformOutput.storage_locations.value.aws_s3_buckets.find((s: any) => s.region === "us-east-1");
     s3BucketEuWest1 = terraformOutput.storage_locations.value.aws_s3_buckets.find((s: any) => s.region === "eu-west-1");
 
-    await testCopyFromS3ToS3SmallFile();
+    // await testCopyFromS3ToS3SmallFile();
     // await testCopyFromS3ToS3BigFile();
 
-    // await testCopyFromBlobStorageToBlobStorageSmallFile()
+    await testCopyFromBlobStorageToBlobStorageSmallFile()
     // await testCopyFromBlobStorageToBlobStorageBigFile();
 
     // await testCopyFromBlobStorageToS3SmallFile();

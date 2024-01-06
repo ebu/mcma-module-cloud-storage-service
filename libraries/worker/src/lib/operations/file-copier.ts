@@ -21,6 +21,7 @@ import { isS3Locator } from "@mcma/aws-s3";
 import { isBlobStorageLocator } from "@mcma/azure-blob-storage";
 
 import { ActiveWorkItem, MultipartSegment, SourceFile, TargetFile, WorkItem, WorkType } from "./model";
+import { logError } from "./utils";
 
 const MAX_CONCURRENCY = 32;
 const MULTIPART_SIZE = 67108864; // 64MiB
@@ -79,12 +80,12 @@ export class FileCopier {
         const multipartCompleteWorkItems = copyWorkItems.filter(w => w.type === WorkType.MultipartComplete);
         const multipartCompleteWorkItemsMap: { [key: string]: WorkItem } = {};
         for (const workItem of multipartCompleteWorkItems) {
-            multipartCompleteWorkItemsMap[workItem.sourceFile.locator.url] = workItem;
+            multipartCompleteWorkItemsMap[workItem.targetFile.locator.url] = workItem;
         }
 
         for (const workItem of copyWorkItems) {
             if (workItem.type === WorkType.MultipartSegment) {
-                const multipartCompleteWorkItem = multipartCompleteWorkItemsMap[workItem.sourceFile.locator.url];
+                const multipartCompleteWorkItem = multipartCompleteWorkItemsMap[workItem.targetFile.locator.url];
                 if (!multipartCompleteWorkItem) {
                     throw new McmaException("Incomplete work items list");
                 }
@@ -111,6 +112,10 @@ export class FileCopier {
     }
 
     public addFile(sourceFile: SourceFile, targetFile: TargetFile) {
+        if (this.queuedWorkItems.find(w => w.targetFile.locator.url === targetFile.locator.url)) {
+            throw new McmaException("TargetFile already added to FileCopier");
+        }
+
         this.queuedWorkItems.push({
             type: WorkType.Prepare,
             sourceFile,
@@ -246,7 +251,7 @@ export class FileCopier {
             }
         } catch (error) {
             this.logger.error("FileCopier.process() - Error caught:");
-            this.logger.error(error);
+            logError(this.logger, error);
             this.error = error;
         } finally {
             this.processing = false;
@@ -259,7 +264,7 @@ export class FileCopier {
      * to obtain object metadata, and to determine whether the target object already exists
      ***/
     processWorkItemPrepare(workItem: WorkItem) {
-        this.logger.info(`FileCopier.processWorkItemPrepare() - ${workItem.sourceFile.locator.url}`);
+        this.logger.info(`FileCopier.processWorkItemPrepare() - ${workItem.targetFile.locator.url}`);
 
         const promise = new Promise<any>(async (resolve, reject) => {
             try {
@@ -303,8 +308,8 @@ export class FileCopier {
                             contentType = commandOutput.ContentType;
                             lastModified = commandOutput.LastModified;
                         } catch (error) {
-                            this.logger.error(error);
-                            this.logger.info("Source AND Target are S3 - FAILED head request ");
+                            this.logger.error("Source AND Target are S3 - FAILED head request ");
+                            logError(this.logger, error);
                         }
                     }
 
@@ -401,11 +406,11 @@ export class FileCopier {
     }
 
     finishWorkItemPrepare(activeWorkItem: ActiveWorkItem) {
-        this.logger.info(`FileCopier.finishWorkItemPrepare() - ${activeWorkItem.workItem.sourceFile.locator.url}`);
+        this.logger.info(`FileCopier.finishWorkItemPrepare() - ${activeWorkItem.workItem.targetFile.locator.url}`);
 
         if (activeWorkItem.error) {
-            this.logger.error(activeWorkItem.error);
-            if (activeWorkItem.workItem.retries++ < 1) {
+            logError(this.logger, activeWorkItem.error);
+            if (activeWorkItem.workItem.retries++ < 2) {
                 this.queuedWorkItems.push(activeWorkItem.workItem);
             } else {
                 throw activeWorkItem.error;
@@ -414,7 +419,7 @@ export class FileCopier {
             const { sourceUrl, sourceHeaders, contentLength, contentType, lastModified, skip } = activeWorkItem.result;
 
             if (skip) {
-                this.logger.info(`${activeWorkItem.workItem.sourceFile.locator.url} already present on target location`);
+                this.logger.info(`${activeWorkItem.workItem.targetFile.locator.url} already present on target location`);
                 return;
             }
 
@@ -435,7 +440,7 @@ export class FileCopier {
     }
 
     processWorkItemSingle(workItem: WorkItem) {
-        this.logger.info(`FileCopier.processWorkItemSingle() - ${workItem.sourceFile.locator.url}`);
+        this.logger.info(`FileCopier.processWorkItemSingle() - ${workItem.targetFile.locator.url}`);
         const promise = new Promise<void>(async (resolve, reject) => {
             try {
                 if (isS3Locator(workItem.targetFile.locator)) {
@@ -451,9 +456,9 @@ export class FileCopier {
                         const headers = Object.assign({}, this.config.axiosConfig?.headers, workItem.sourceHeaders);
                         const axiosConfig = Object.assign({}, this.config.axiosConfig, { headers, responseType: "arraybuffer" });
 
-                        this.logger.info(`Downloading ${workItem.sourceFile.locator.url} from ${workItem.sourceUrl}`);
+                        this.logger.info(`Downloading ${workItem.targetFile.locator.url} from ${workItem.sourceUrl}`);
                         const response = await axios.get(workItem.sourceUrl, axiosConfig);
-                        this.logger.info(`Uploading ${workItem.sourceFile.locator.url} to ${workItem.targetFile.locator.url}`);
+                        this.logger.info(`Uploading ${workItem.targetFile.locator.url} to ${workItem.targetFile.locator.url}`);
 
                         await s3Client.send(new PutObjectCommand({
                             Bucket: workItem.targetFile.locator.bucket,
@@ -481,10 +486,10 @@ export class FileCopier {
     }
 
     finishWorkItemSingle(activeWorkItem: ActiveWorkItem) {
-        this.logger.info(`FileCopier.finishWorkItemSingle() - ${activeWorkItem.workItem.sourceFile.locator.url}`);
-        if (activeWorkItem.error) {
-            this.logger.error(activeWorkItem.error);
-            if (activeWorkItem.workItem.retries++ < 1) {
+        this.logger.info(`FileCopier.finishWorkItemSingle() - ${activeWorkItem.workItem.targetFile.locator.url}`);
+        if (activeWorkItem.error && activeWorkItem.error.code !== "PendingCopyOperation") { // if we see a pending copy operation error, we assume there is another process that tries to copy the exact same file, and we ignore the error
+            logError(this.logger, activeWorkItem.error);
+            if (activeWorkItem.workItem.retries++ < 2) {
                 this.queuedWorkItems.push(activeWorkItem.workItem);
             } else {
                 throw activeWorkItem.error;
@@ -496,7 +501,7 @@ export class FileCopier {
     }
 
     processWorkItemMultipartStart(workItem: WorkItem) {
-        this.logger.info(`FileCopier.processWorkItemMultipartStart() - ${workItem.sourceFile.locator.url}`);
+        this.logger.info(`FileCopier.processWorkItemMultipartStart() - ${workItem.targetFile.locator.url}`);
 
         const promise = new Promise<{ uploadId?: string }>(async (resolve, reject) => {
             let uploadId: string = undefined;
@@ -524,10 +529,10 @@ export class FileCopier {
     }
 
     finishWorkItemMultipartStart(activeWorkItem: ActiveWorkItem) {
-        this.logger.info(`FileCopier.finishWorkItemMultipartStart() - ${activeWorkItem.workItem.sourceFile.locator.url}`);
+        this.logger.info(`FileCopier.finishWorkItemMultipartStart() - ${activeWorkItem.workItem.targetFile.locator.url}`);
         if (activeWorkItem.error) {
-            this.logger.error(activeWorkItem.error);
-            if (activeWorkItem.workItem.retries++ < 1) {
+            logError(this.logger, activeWorkItem.error);
+            if (activeWorkItem.workItem.retries++ < 2) {
                 this.queuedWorkItems.push(activeWorkItem.workItem);
             } else {
                 throw activeWorkItem.error;
@@ -596,7 +601,7 @@ export class FileCopier {
     }
 
     processWorkItemMultipartSegment(workItem: WorkItem) {
-        this.logger.info(`FileCopier.processWorkItemMultipartSegment() - ${workItem.sourceFile.locator.url} - ${workItem.multipartData?.segment?.partNumber}`);
+        this.logger.info(`FileCopier.processWorkItemMultipartSegment() - ${workItem.targetFile.locator.url} - ${workItem.multipartData?.segment?.partNumber}`);
 
         const promise = new Promise<{ etag?: string, blockId?: string }>(async (resolve, reject) => {
             let etag: string = undefined;
@@ -662,10 +667,10 @@ export class FileCopier {
     }
 
     finishWorkItemMultipartSegment(activeWorkItem: ActiveWorkItem) {
-        this.logger.info(`FileCopier.finishWorkItemMultipartSegment() - ${activeWorkItem.workItem.sourceFile.locator.url} - ${activeWorkItem.workItem.multipartData?.segment?.partNumber}`);
+        this.logger.info(`FileCopier.finishWorkItemMultipartSegment() - ${activeWorkItem.workItem.targetFile.locator.url} - ${activeWorkItem.workItem.multipartData?.segment?.partNumber}`);
         if (activeWorkItem.error) {
-            this.logger.error(activeWorkItem.error);
-            if (activeWorkItem.workItem.retries++ < 1) {
+            logError(this.logger, activeWorkItem.error);
+            if (activeWorkItem.workItem.retries++ < 2) {
                 this.queuedWorkItems.push(activeWorkItem.workItem);
             } else {
                 throw activeWorkItem.error;
@@ -684,7 +689,7 @@ export class FileCopier {
     }
 
     processWorkItemMultipartComplete(workItem: WorkItem) {
-        this.logger.info(`FileCopier.processWorkItemMultipartComplete() - ${workItem.sourceFile.locator.url}`);
+        this.logger.info(`FileCopier.processWorkItemMultipartComplete() - ${workItem.targetFile.locator.url}`);
 
         const promise = new Promise<void>(async (resolve, reject) => {
             try {
@@ -732,11 +737,11 @@ export class FileCopier {
     }
 
     finishWorkItemMultipartComplete(activeWorkItem: ActiveWorkItem) {
-        this.logger.info(`FileCopier.finishWorkItemMultipartComplete() - ${activeWorkItem.workItem.sourceFile.locator.url}`);
+        this.logger.info(`FileCopier.finishWorkItemMultipartComplete() - ${activeWorkItem.workItem.targetFile.locator.url}`);
 
-        if (activeWorkItem.error) {
-            this.logger.error(activeWorkItem.error);
-            if (activeWorkItem.workItem.retries++ < 1) {
+        if (activeWorkItem.error && activeWorkItem.error.code !== "PendingCopyOperation") { // if we see a pending copy operation error, we assume there is another process that tries to copy the exact same file, and we ignore the error
+            logError(this.logger, activeWorkItem.error);
+            if (activeWorkItem.workItem.retries++ < 2) {
                 this.queuedWorkItems.push(activeWorkItem.workItem);
             } else {
                 throw activeWorkItem.error;
@@ -746,5 +751,3 @@ export class FileCopier {
         }
     }
 }
-
-

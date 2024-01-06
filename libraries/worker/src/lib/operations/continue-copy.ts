@@ -5,7 +5,7 @@ import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
 import { WorkerContext } from "../worker-context";
 import { FileCopier } from "../operations";
-import { loadFileCopierState, saveFileCopierState } from "./utils";
+import { deleteFileCopierState, loadFileCopierState, logError, saveFileCopierState } from "./utils";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 
@@ -16,9 +16,8 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
         workerRequest
     );
 
+    const jobAssignmentDatabaseId = jobAssignmentHelper.jobAssignmentDatabaseId;
     const logger = jobAssignmentHelper.logger;
-
-    const { fileCopierStateDatabaseIds } = workerRequest.input;
 
     try {
         await jobAssignmentHelper.initialize();
@@ -46,58 +45,75 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             progressUpdate,
         });
 
-        const state = await loadFileCopierState(fileCopierStateDatabaseIds, jobAssignmentHelper.dbTable);
+        {
+            const state = await loadFileCopierState(jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
 
-        if (!state.workItems.length) {
-            logger.error("Failed to retrieve remaining work items from database. Failing Job");
-            await jobAssignmentHelper.fail(new ProblemDetail({
-                type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/generic-failure",
-                title: "Generic failure",
-                detail: "Failed to retrieve remaining work items from database",
-            }));
-            return;
+            if (!state.workItems.length) {
+                logger.error("Failed to retrieve remaining work items from database. Failing Job");
+                await jobAssignmentHelper.fail(new ProblemDetail({
+                    type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/generic-failure",
+                    title: "Generic failure",
+                    detail: "Failed to retrieve remaining work items from database",
+                }));
+                return;
+            }
+
+            logger.info(`Loaded ${state.workItems.length} work items`);
+            fileCopier.setState(state);
         }
 
-        logger.info(`Loaded ${state.workItems.length} work items`);
-        fileCopier.setState(state);
+        let continueRunning = true;
+        let workToDo = true;
+        do {
+            const oneMinuteFromNow = new Date(Date.now() + 60000);
+            continueRunning = oneMinuteFromNow < ctx.timeLimit;
 
-        await fileCopier.runUntil(ctx.timeLimit);
+            await fileCopier.runUntil(continueRunning ? oneMinuteFromNow : ctx.timeLimit);
 
-        const error = fileCopier.getError();
-        if (error) {
-            logger.error("Failing job as copy resulted in a failure");
-            logger.error(error);
-            await jobAssignmentHelper.fail(new ProblemDetail({
-                type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/copy-failure",
-                title: "Copy failure",
-                detail: error.message,
-            }));
-            return;
-        }
+            const error = fileCopier.getError();
+            if (error) {
+                logger.error("Failing job as copy resulted in a failure");
+                logError(logger, error);
 
-        const state2 = fileCopier.getState();
-        if (state2.workItems.length > 0) {
-            logger.info(`${state2.workItems.length} work items remaining. Storing FileCopierState`);
-            const jobAssignmentDatabaseId = jobAssignmentHelper.jobAssignmentDatabaseId;
-            const fileCopierStateDatabaseIds = await saveFileCopierState(state2, jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
+                await jobAssignmentHelper.fail(new ProblemDetail({
+                    type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/copy-failure",
+                    title: "Copy failure",
+                    detail: error.message,
+                }));
+                return;
+            }
 
-            logger.info(`Invoking worker again`);
-            await ctx.workerInvoker.invoke(getWorkerFunctionId(), {
-                operationName: "ContinueCopy",
-                input: {
-                    jobAssignmentDatabaseId,
-                    fileCopierStateDatabaseIds,
-                },
-                tracker: jobAssignmentHelper.workerRequest.tracker
-            });
-            return;
-        }
+            const state = fileCopier.getState();
+            workToDo = state.workItems.length > 0;
+
+            if (workToDo) {
+                logger.info(`${state.workItems.length} work items remaining. Storing FileCopierState`);
+
+                await deleteFileCopierState(jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
+                await saveFileCopierState(state, jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
+
+                if (!continueRunning) {
+                    logger.info(`Invoking worker again`);
+                    await ctx.workerInvoker.invoke(getWorkerFunctionId(), {
+                        operationName: "ContinueCopy",
+                        input: {
+                            jobAssignmentDatabaseId,
+                        },
+                        tracker: jobAssignmentHelper.workerRequest.tracker
+                    });
+                    return;
+                }
+            }
+        } while (continueRunning && workToDo);
+
+        // state no longer needed. finished copying.
+        await deleteFileCopierState(jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
 
         await Utils.sleep(1000);
         logger.info("Copy was a success, marking job as Completed");
         await jobAssignmentHelper.complete();
     } catch (error) {
-        logger.error(error);
+        logError(logger, error);
         try {
             await jobAssignmentHelper.fail(new ProblemDetail({
                 type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/generic-failure",
@@ -105,8 +121,7 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
                 detail: error.message
             }));
         } catch (error) {
-            logger.error(error);
+            logError(logger, error);
         }
     }
 }
-

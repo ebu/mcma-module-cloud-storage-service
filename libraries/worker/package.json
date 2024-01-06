@@ -13,25 +13,25 @@
         "@azure/storage-blob": "^12.15.0"
     },
     "devDependencies": {
-        "@mcma/aws-s3": "0.16.11",
-        "@mcma/azure-blob-storage": "0.16.11",
-        "@mcma/client": "0.16.11",
-        "@mcma/core": "0.16.11",
-        "@mcma/data": "0.16.11",
-        "@mcma/secrets": "0.16.11",
-        "@mcma/worker": "0.16.11",
-        "@mcma/worker-invoker": "0.16.11",
+        "@mcma/aws-s3": "0.16.13",
+        "@mcma/azure-blob-storage": "0.16.13",
+        "@mcma/client": "0.16.13",
+        "@mcma/core": "0.16.13",
+        "@mcma/data": "0.16.13",
+        "@mcma/secrets": "0.16.13",
+        "@mcma/worker": "0.16.13",
+        "@mcma/worker-invoker": "0.16.13",
         "@types/node": "^18.15.11",
         "@types/uuid": "^9.0.1"
     },
     "peerDependencies": {
-        "@mcma/aws-s3": "0.16.11",
-        "@mcma/azure-blob-storage": "0.16.11",
-        "@mcma/client": "0.16.11",
-        "@mcma/core": "0.16.11",
-        "@mcma/data": "0.16.11",
-        "@mcma/secrets": "0.16.11",
-        "@mcma/worker": "0.16.11",
-        "@mcma/worker-invoker": "0.16.11"
+        "@mcma/aws-s3": "0.16.13",
+        "@mcma/azure-blob-storage": "0.16.13",
+        "@mcma/client": "0.16.13",
+        "@mcma/core": "0.16.13",
+        "@mcma/data": "0.16.13",
+        "@mcma/secrets": "0.16.13",
+        "@mcma/worker": "0.16.13",
+        "@mcma/worker-invoker": "0.16.13"
     }
 }

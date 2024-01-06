@@ -8,7 +8,7 @@ import { BlobStorageLocator, buildBlobStorageUrl, isBlobStorageLocator } from "@
 
 import { FileCopier, SourceFile, TargetFile } from "../operations";
 import { WorkerContext } from "../worker-context";
-import { saveFileCopierState } from "./utils";
+import { logError, saveFileCopierState } from "./utils";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 
@@ -16,6 +16,8 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
     const logger = jobAssignmentHelper.logger;
     const jobInput = jobAssignmentHelper.jobInput;
     logger.info(jobInput);
+
+    const jobAssignmentDatabaseId = jobAssignmentHelper.jobAssignmentDatabaseId;
 
     const getS3Client = async (bucket: string, region?: string) => ctx.storageClientFactory.getS3Client(bucket, region);
     const getContainerClient = async (account: string, container: string) => ctx.storageClientFactory.getContainerClient(account, container);
@@ -64,7 +66,7 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
     const error = fileCopier.getError();
     if (error) {
         logger.error("Failing job as copy resulted in a failure");
-        logger.error(error);
+        logError(logger, error);
         await jobAssignmentHelper.fail(new ProblemDetail({
             type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/copy-failure",
             title: "Copy failure",
@@ -76,15 +78,13 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
     const state = fileCopier.getState();
     if (state.workItems.length > 0) {
         logger.info(`${state.workItems.length} work items remaining. Storing FileCopierState`);
-        const jobAssignmentDatabaseId = jobAssignmentHelper.jobAssignmentDatabaseId;
-        const fileCopierStateDatabaseIds = await saveFileCopierState(state, jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
+        await saveFileCopierState(state, jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
 
         logger.info(`Invoking worker again`);
         await ctx.workerInvoker.invoke(getWorkerFunctionId(), {
             operationName: "ContinueCopy",
             input: {
                 jobAssignmentDatabaseId,
-                fileCopierStateDatabaseIds,
             },
             tracker: jobAssignmentHelper.workerRequest.tracker
         });

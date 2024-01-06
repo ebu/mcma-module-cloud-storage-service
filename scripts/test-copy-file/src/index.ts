@@ -11,6 +11,7 @@ import { Job, JobParameterBag, JobProfile, JobStatus, Locator, McmaException, Mc
 import { buildS3Url, S3Locator } from "@mcma/aws-s3";
 import { ContainerClient } from "@azure/storage-blob";
 import { BlobStorageLocator, buildBlobStorageUrl } from "@mcma/azure-blob-storage";
+import { S3Helper } from "./s3-helper";
 
 const credentials = fromIni();
 
@@ -18,7 +19,7 @@ const JOB_PROFILE = "CopyFile";
 
 const TERRAFORM_OUTPUT = "../../deployment/terraform.output.json";
 
-const MEDIA_FILE = "C:/Media/2015_GF_ORF_00_18_09_conv.mp4";
+const MEDIA_FILE = "C:/Media/2gb_file.mxf";
 
 const s3Client = new S3Client({ credentials });
 
@@ -49,38 +50,19 @@ async function uploadFileToBucket(bucket: string, filename: string, s3Client: S3
         console.log("File Error", err);
     });
 
+    const s3Helper = new S3Helper({ s3ClientProvider: async (bucket: string) => s3Client});
+
     const key = path.basename(filename);
 
-    const params: PutObjectCommandInput = {
-        Bucket: bucket,
-        Key: key,
-        Body: fileStream,
-        ContentType: mime.lookup(filename) || "application/octet-stream"
-    };
-
-    let isPresent = true;
-
-    try {
-        console.log("checking if file is already present");
-        await s3Client.send(new HeadObjectCommand({ Bucket: params.Bucket, Key: params.Key }));
-        console.log("Already present. Not uploading again");
-    } catch (error) {
-        isPresent = false;
+    log(`checking if file ${key} is already present`);
+    if (await s3Helper.exists(bucket, key)) {
+        log("Already present. Not uploading again");
+    } else {
+        log(`Not present. Uploading ${key} to ${bucket}`);
+        await s3Helper.upload(filename, bucket, key);
     }
 
-    if (!isPresent) {
-        console.log("Not present. Uploading");
-        await s3Client.send(new PutObjectCommand(params));
-    }
-
-    // const command = new GetObjectCommand({
-    //     Bucket: params.Bucket,
-    //     Key: params.Key,
-    // });
-    // const url = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
-
-
-    const url = !s3Client.config.endpoint ? await buildS3Url(bucket, key, s3Client) : `https://${s3Client.config.endpoint}/${bucket}/${key}`;
+    const url = await buildS3Url(bucket, key, await s3Helper.getS3Client(bucket));
 
     return new S3Locator({ url });
 }
