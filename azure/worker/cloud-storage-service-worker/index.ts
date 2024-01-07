@@ -31,8 +31,8 @@ export const handler: AzureFunction = async (context: Context) => {
         logger.debug(context);
         logger.debug(queueMessage);
 
-        // assume 5 mins function timeout, so we stop in 3 mins from now
-        let timeLimit = new Date(Date.now() + 180000);
+        // assume 5 mins function timeout
+        let functionTimeLimit = new Date(Date.now() + 300000);
 
         logger.info("AzureFunctionsJobHost__functionTimeout = " + process.env.AzureFunctionsJobHost__functionTimeout);
         const functionTimeout = process.env.AzureFunctionsJobHost__functionTimeout;
@@ -40,7 +40,7 @@ export const handler: AzureFunction = async (context: Context) => {
             const parts = functionTimeout.split(":");
             if (parts.length === 3) {
                 const durationInSeconds = Number.parseInt(parts[0]) * 3600 + Number.parseInt(parts[1]) * 60 + Number.parseInt(parts[2]);
-                timeLimit = new Date(Date.now() + (durationInSeconds - 120) * 1000);
+                functionTimeLimit = new Date(Date.now() + durationInSeconds * 1000);
             }
         }
 
@@ -48,7 +48,7 @@ export const handler: AzureFunction = async (context: Context) => {
             requestId: context.invocationId,
             secretsProvider,
             storageClientFactory,
-            timeLimit,
+            functionTimeLimit,
             workerInvoker,
         };
 

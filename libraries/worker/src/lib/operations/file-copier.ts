@@ -124,7 +124,11 @@ export class FileCopier {
         });
     }
 
-    public async runUntil(date: Date) {
+    public async runUntil(runUntilDate: Date, bailOutDate: Date) {
+        if (runUntilDate >= bailOutDate) {
+            throw new McmaException("bailOutDate must be later than runUntilDate");
+        }
+
         this.logger.info("FileCopier.runUntil() - Start");
         if (this.running || this.processing) {
             throw new McmaException("Can't invoke method FileCopier.runUntil if it's already invoked");
@@ -140,14 +144,14 @@ export class FileCopier {
 
             this.logger.info("FileCopier.runUntil() - Wait until timeout, finished work, or an error");
 
-            while (date > new Date() && (this.activeWorkItems.length > 0 || this.queuedWorkItems.length > 0) && !this.error) {
+            while (runUntilDate > new Date() && (this.activeWorkItems.length > 0 || this.queuedWorkItems.length > 0) && !this.error) {
                 await Utils.sleep(1000);
                 if (this.config.progressUpdate) {
                     await this.config.progressUpdate(this.filesTotal, this.filesCopied, this.bytesTotal, this.bytesCopied);
                 }
             }
 
-            if (!(date > new Date())) {
+            if (runUntilDate <= new Date()) {
                 this.logger.info("FileCopier.runUntil() - Timeout reached");
             } else if (this.error) {
                 this.logger.info("FileCopier.runUntil() - Error occurred");
@@ -161,6 +165,10 @@ export class FileCopier {
                 this.logger.info("FileCopier.runUntil() - Wait for active work items to finish");
 
                 while (this.activeWorkItems.length > 0) {
+                    if (bailOutDate < new Date()) {
+                        throw new McmaException("FileCopier not able to finish workItems in time. Bailing out");
+                    }
+
                     await Utils.sleep(1000);
                     if (this.config.progressUpdate) {
                         await this.config.progressUpdate(this.filesTotal, this.filesCopied, this.bytesTotal, this.bytesCopied);
@@ -175,6 +183,9 @@ export class FileCopier {
             this.logger.info("FileCopier.runUntil() - Wait for process thread to stop");
 
             while (this.processing) {
+                if (bailOutDate < new Date()) {
+                    throw new McmaException("FileCopier processing thread not finishing in time. Bailing out");
+                }
                 await Utils.sleep(250);
             }
         }

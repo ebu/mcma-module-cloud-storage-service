@@ -49,7 +49,7 @@ export async function handler(event: WorkerRequestProperties, context: Context) 
             requestId: context.awsRequestId,
             secretsProvider,
             storageClientFactory,
-            timeLimit: new Date(Date.now() + context.getRemainingTimeInMillis() - 120000),
+            functionTimeLimit: new Date(Date.now() + context.getRemainingTimeInMillis()),
             workerInvoker,
         };
 

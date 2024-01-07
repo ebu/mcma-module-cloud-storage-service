@@ -1,8 +1,8 @@
-import { Locator, ProblemDetail, StorageJob, Utils } from "@mcma/core";
+import { JobStatus, Locator, ProblemDetail, StorageJob, Utils } from "@mcma/core";
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
-import { SourceFile, TargetFile, WorkerContext, FileCopier } from "../index";
+import { FileCopier, SourceFile, TargetFile, WorkerContext } from "../index";
 import { logError, saveFileCopierState } from "./utils";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
@@ -11,6 +11,10 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
     const logger = jobAssignmentHelper.logger;
     const jobInput = jobAssignmentHelper.jobInput;
     logger.info(jobInput);
+
+    if (jobAssignmentHelper.job.status === JobStatus.Completed || jobAssignmentHelper.job.status === JobStatus.Failed || jobAssignmentHelper.job.status === JobStatus.Canceled) {
+        return;
+    }
 
     const jobAssignmentDatabaseId = jobAssignmentHelper.jobAssignmentDatabaseId;
 
@@ -52,7 +56,9 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
 
     fileCopier.addFile(sourceFile, targetFile);
 
-    await fileCopier.runUntil(ctx.timeLimit);
+    const runUntilDate = new Date(ctx.functionTimeLimit.getTime() - 120000);
+    const bailOutDate = new Date(ctx.functionTimeLimit.getTime() - 30000);
+    await fileCopier.runUntil(runUntilDate, bailOutDate);
 
     const error = fileCopier.getError();
     if (error) {

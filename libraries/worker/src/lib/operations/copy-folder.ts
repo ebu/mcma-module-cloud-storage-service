@@ -1,6 +1,6 @@
 import { ListObjectsV2Command, ListObjectsV2CommandInput } from "@aws-sdk/client-s3";
 
-import { Locator, McmaException, ProblemDetail, StorageJob, Utils } from "@mcma/core";
+import { JobStatus, Locator, McmaException, ProblemDetail, StorageJob, Utils } from "@mcma/core";
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
@@ -16,6 +16,10 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
     const logger = jobAssignmentHelper.logger;
     const jobInput = jobAssignmentHelper.jobInput;
     logger.info(jobInput);
+
+    if (jobAssignmentHelper.job.status === JobStatus.Completed || jobAssignmentHelper.job.status === JobStatus.Failed || jobAssignmentHelper.job.status === JobStatus.Canceled) {
+        return;
+    }
 
     const jobAssignmentDatabaseId = jobAssignmentHelper.jobAssignmentDatabaseId;
 
@@ -61,7 +65,9 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
         fileCopier.addFile(file.sourceFile, file.targetFile);
     }
 
-    await fileCopier.runUntil(ctx.timeLimit);
+    const runUntilDate = new Date(ctx.functionTimeLimit.getTime() - 120000);
+    const bailOutDate = new Date(ctx.functionTimeLimit.getTime() - 30000);
+    await fileCopier.runUntil(runUntilDate, bailOutDate);
 
     const error = fileCopier.getError();
     if (error) {

@@ -120,7 +120,7 @@ async function testCopyFromS3ToS3SmallFile() {
     });
 
     fileCopier.addFile(sourceFile, targetFile);
-    await fileCopier.runUntil(new Date(Date.now() + 60000));
+    await fileCopier.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
 }
 
 async function testCopyFromS3ToS3BigFile() {
@@ -142,7 +142,7 @@ async function testCopyFromS3ToS3BigFile() {
     });
 
     fileCopier.addFile(sourceFile, targetFile);
-    await fileCopier.runUntil(new Date(Date.now() + 30000));
+    await fileCopier.runUntil(new Date(Date.now() + 30000), new Date(Date.now() + 120000));
     const state = fileCopier.getState();
 
     log("Pausing");
@@ -161,7 +161,7 @@ async function testCopyFromS3ToS3BigFile() {
     fileCopier2.setState(state);
 
     log("Continuing");
-    await fileCopier2.runUntil(new Date(Date.now() + 60000));
+    await fileCopier2.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
 
     const state2 = fileCopier2.getState();
     log("Pausing");
@@ -188,7 +188,7 @@ async function testCopyFromBlobStorageToBlobStorageSmallFile() {
     });
 
     fileCopier.addFile(sourceFile, targetFile);
-    await fileCopier.runUntil(new Date(Date.now() + 60000));
+    await fileCopier.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
 }
 
 
@@ -211,7 +211,7 @@ async function testCopyFromBlobStorageToBlobStorageBigFile() {
     });
 
     fileCopier.addFile(sourceFile, targetFile);
-    await fileCopier.runUntil(new Date(Date.now() + 30000));
+    await fileCopier.runUntil(new Date(Date.now() + 30000), new Date(Date.now() + 120000));
 
     await Utils.sleep(5000);
     const state = fileCopier.getState();
@@ -230,7 +230,7 @@ async function testCopyFromBlobStorageToBlobStorageBigFile() {
     fileCopier2.setState(state);
 
     log("Continuing");
-    await fileCopier2.runUntil(new Date(Date.now() + 60000));
+    await fileCopier2.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
 
     const state2 = fileCopier2.getState();
     log("Pausing");
@@ -256,7 +256,7 @@ async function testCopyFromBlobStorageToS3SmallFile() {
     });
 
     fileCopier.addFile(sourceFile, targetFile);
-    await fileCopier.runUntil(new Date(Date.now() + 60000));
+    await fileCopier.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
 }
 
 async function testCopyFromBlobStorageToS3BigFile() {
@@ -278,7 +278,7 @@ async function testCopyFromBlobStorageToS3BigFile() {
     });
 
     fileCopier.addFile(sourceFile, targetFile);
-    await fileCopier.runUntil(new Date(Date.now() + 30000));
+    await fileCopier.runUntil(new Date(Date.now() + 30000), new Date(Date.now() + 120000));
 
     await Utils.sleep(5000);
     const state = fileCopier.getState();
@@ -297,7 +297,7 @@ async function testCopyFromBlobStorageToS3BigFile() {
     fileCopier2.setState(state);
 
     log("Continuing");
-    await fileCopier2.runUntil(new Date(Date.now() + 60000));
+    await fileCopier2.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
 
     const state2 = fileCopier2.getState();
     log("Pausing");

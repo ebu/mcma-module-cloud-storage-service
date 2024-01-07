@@ -62,13 +62,16 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             fileCopier.setState(state);
         }
 
+        const runUntilDate = new Date(ctx.functionTimeLimit.getTime() - 120000);
+        const bailOutDate = new Date(ctx.functionTimeLimit.getTime() - 30000);
+
         let continueRunning = true;
         let workToDo = true;
         do {
             const oneMinuteFromNow = new Date(Date.now() + 60000);
-            continueRunning = oneMinuteFromNow < ctx.timeLimit;
+            continueRunning = oneMinuteFromNow < runUntilDate;
 
-            await fileCopier.runUntil(continueRunning ? oneMinuteFromNow : ctx.timeLimit);
+            await fileCopier.runUntil(continueRunning ? oneMinuteFromNow : runUntilDate, bailOutDate);
 
             const error = fileCopier.getError();
             if (error) {

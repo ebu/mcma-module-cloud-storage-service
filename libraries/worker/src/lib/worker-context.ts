@@ -4,7 +4,7 @@ import { WorkerInvoker } from "@mcma/worker-invoker";
 
 export interface WorkerContext {
     requestId: string;
-    timeLimit: Date;
+    functionTimeLimit: Date;
     storageClientFactory: StorageClientFactory;
     secretsProvider: SecretsProvider;
     workerInvoker: WorkerInvoker;
