@@ -1,4 +1,4 @@
-import { ProblemDetail, Utils } from "@mcma/core";
+import { JobStatus, ProblemDetail, Utils } from "@mcma/core";
 import { getTableName } from "@mcma/data";
 import { ProcessJobAssignmentHelper, ProviderCollection, WorkerRequest } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
@@ -15,6 +15,10 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
         providers.resourceManagerProvider.get(),
         workerRequest
     );
+
+    if (jobAssignmentHelper.job.status === JobStatus.Completed || jobAssignmentHelper.job.status === JobStatus.Failed || jobAssignmentHelper.job.status === JobStatus.Canceled) {
+        return;
+    }
 
     const jobAssignmentDatabaseId = jobAssignmentHelper.jobAssignmentDatabaseId;
     const logger = jobAssignmentHelper.logger;
