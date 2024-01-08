@@ -16,15 +16,15 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
         workerRequest
     );
 
-    if (jobAssignmentHelper.job.status === JobStatus.Completed || jobAssignmentHelper.job.status === JobStatus.Failed || jobAssignmentHelper.job.status === JobStatus.Canceled) {
-        return;
-    }
-
     const jobAssignmentDatabaseId = jobAssignmentHelper.jobAssignmentDatabaseId;
     const logger = jobAssignmentHelper.logger;
 
     try {
         await jobAssignmentHelper.initialize();
+
+        if (jobAssignmentHelper.job.status === JobStatus.Completed || jobAssignmentHelper.job.status === JobStatus.Failed || jobAssignmentHelper.job.status === JobStatus.Canceled) {
+            return;
+        }
 
         const getS3Client = async (bucket: string, region?: string) => ctx.storageClientFactory.getS3Client(bucket, region);
         const getContainerClient = async (account: string, container: string) => ctx.storageClientFactory.getContainerClient(account, container);
