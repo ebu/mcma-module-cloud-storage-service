@@ -181,6 +181,7 @@ async function testCopyFromBlobStorageToBlobStorageSmallFile() {
 
     const fileCopier = new FileCopier({
         logger,
+        multipartSize: 128 * 1024 * 1024,
         maxConcurrency: 8,
         getS3Client,
         getContainerClient,
@@ -328,7 +329,7 @@ async function main() {
     // await testCopyFromS3ToS3SmallFile();
     // await testCopyFromS3ToS3BigFile();
 
-    await testCopyFromBlobStorageToBlobStorageSmallFile()
+    await testCopyFromBlobStorageToBlobStorageSmallFile();
     // await testCopyFromBlobStorageToBlobStorageBigFile();
 
     // await testCopyFromBlobStorageToS3SmallFile();

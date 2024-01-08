@@ -467,9 +467,9 @@ export class FileCopier {
                         const headers = Object.assign({}, this.config.axiosConfig?.headers, workItem.sourceHeaders);
                         const axiosConfig = Object.assign({}, this.config.axiosConfig, { headers, responseType: "arraybuffer" });
 
-                        this.logger.info(`Downloading ${workItem.targetFile.locator.url} from ${workItem.sourceUrl}`);
+                        this.logger.info(`Downloading ${workItem.sourceFile.locator.url} from ${workItem.sourceUrl}`);
                         const response = await axios.get(workItem.sourceUrl, axiosConfig);
-                        this.logger.info(`Uploading ${workItem.targetFile.locator.url} to ${workItem.targetFile.locator.url}`);
+                        this.logger.info(`Uploading ${workItem.sourceFile.locator.url} to ${workItem.targetFile.locator.url}`);
 
                         await s3Client.send(new PutObjectCommand({
                             Bucket: workItem.targetFile.locator.bucket,
@@ -481,8 +481,15 @@ export class FileCopier {
                 } else if (isBlobStorageLocator(workItem.targetFile.locator)) {
                     const containerClient = await this.config.getContainerClient(workItem.targetFile.locator.account, workItem.targetFile.locator.container);
                     const blobClient = containerClient.getBlockBlobClient(workItem.targetFile.locator.blobName);
-                    const response = await blobClient.beginCopyFromURL(workItem.sourceUrl);
-                    await response.pollUntilDone();
+
+                    const headers = Object.assign({}, this.config.axiosConfig?.headers, workItem.sourceHeaders);
+                    const axiosConfig = Object.assign({}, this.config.axiosConfig, { headers, responseType: "arraybuffer" });
+
+                    this.logger.info(`Downloading ${workItem.sourceFile.locator.url} from ${workItem.sourceUrl}`);
+                    const response = await axios.get(workItem.sourceUrl, axiosConfig);
+                    this.logger.info(`Uploading ${workItem.sourceFile.locator.url} to ${workItem.targetFile.locator.url}`);
+
+                    await blobClient.uploadData(response.data, { blobHTTPHeaders: { blobContentType: workItem.contentType }});
                 }
             } catch (error) {
                 reject(error);
