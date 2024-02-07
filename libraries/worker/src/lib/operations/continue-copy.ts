@@ -40,6 +40,10 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             }
         };
 
+        const runUntilDate = new Date(ctx.functionTimeLimit.getTime() - 120000);
+        const bailOutDate = new Date(ctx.functionTimeLimit.getTime() - 10000);
+        const abortTimeout = ctx.functionTimeLimit.getTime() - Date.now() - 30000;
+
         const fileCopier = new FileCopier({
             maxConcurrency: Number.parseInt(MAX_CONCURRENCY),
             multipartSize: Number.parseInt(MULTIPART_SIZE),
@@ -47,6 +51,9 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             getS3Client,
             getContainerClient,
             progressUpdate,
+            axiosConfig: {
+                signal: AbortSignal.timeout(abortTimeout)
+            }
         });
 
         {
@@ -65,9 +72,6 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             logger.info(`Loaded ${state.workItems.length} work items`);
             fileCopier.setState(state);
         }
-
-        const runUntilDate = new Date(ctx.functionTimeLimit.getTime() - 120000);
-        const bailOutDate = new Date(ctx.functionTimeLimit.getTime() - 30000);
 
         let continueRunning = true;
         let workToDo = true;

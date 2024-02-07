@@ -37,6 +37,10 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
         }
     };
 
+    const runUntilDate = new Date(ctx.functionTimeLimit.getTime() - 120000);
+    const bailOutDate = new Date(ctx.functionTimeLimit.getTime() - 10000);
+    const abortTimeout = ctx.functionTimeLimit.getTime() - Date.now() - 30000;
+
     const fileCopier = new FileCopier({
         maxConcurrency: Number.parseInt(MAX_CONCURRENCY),
         multipartSize: Number.parseInt(MULTIPART_SIZE),
@@ -44,6 +48,9 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
         getS3Client,
         getContainerClient,
         progressUpdate,
+        axiosConfig: {
+            signal: AbortSignal.timeout(abortTimeout)
+        }
     });
 
     const sourceLocator = jobInput.sourceFolder as Locator;
@@ -65,8 +72,6 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
         fileCopier.addFile(file.sourceFile, file.targetFile);
     }
 
-    const runUntilDate = new Date(ctx.functionTimeLimit.getTime() - 120000);
-    const bailOutDate = new Date(ctx.functionTimeLimit.getTime() - 30000);
     await fileCopier.runUntil(runUntilDate, bailOutDate);
 
     const error = fileCopier.getError();
