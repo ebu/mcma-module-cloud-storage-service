@@ -460,7 +460,7 @@ export class FileCopier {
                         await s3Client.send(new CopyObjectCommand({
                             Bucket: workItem.targetFile.locator.bucket,
                             Key: workItem.targetFile.locator.key,
-                            CopySource: encodeURI(workItem.sourceFile.locator.bucket + "/" + workItem.sourceFile.locator.key),
+                            CopySource: `/${encodeURIComponent(workItem.sourceFile.locator.bucket)}/${encodeURIComponent(workItem.sourceFile.locator.key)}`,
                             ContentType: workItem.contentType,
                         }));
                     } else {
@@ -633,7 +633,7 @@ export class FileCopier {
                         const commandOutput = await s3Client.send(new UploadPartCopyCommand({
                             Bucket: workItem.targetFile.locator.bucket,
                             Key: workItem.targetFile.locator.key,
-                            CopySource: encodeURI(workItem.sourceFile.locator.bucket + "/" + workItem.sourceFile.locator.key),
+                            CopySource: `/${encodeURIComponent(workItem.sourceFile.locator.bucket)}/${encodeURIComponent(workItem.sourceFile.locator.key)}`,
                             CopySourceRange: "bytes=" + workItem.multipartData.segment.start + "-" + workItem.multipartData.segment.end,
                             UploadId: workItem.multipartData.uploadId,
                             PartNumber: workItem.multipartData.segment.partNumber,
