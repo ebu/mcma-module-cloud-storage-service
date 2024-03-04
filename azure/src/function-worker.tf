@@ -15,7 +15,7 @@ resource "azurerm_windows_function_app" "worker" {
 
   storage_account_name       = var.app_storage_account.name
   storage_account_access_key = var.app_storage_account.primary_access_key
-  service_plan_id            = var.app_service_plan.id
+  service_plan_id            = local.worker_app_service_plan_id
 
   site_config {
     application_stack {
@@ -62,6 +62,8 @@ resource "azurerm_windows_function_app" "worker" {
 
     AzureFunctionsJobHost__functionTimeout = var.worker_function_timeout
   }
+
+  tags = var.tags
 }
 
 resource "azurerm_storage_queue" "worker" {
