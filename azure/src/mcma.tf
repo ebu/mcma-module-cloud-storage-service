@@ -31,7 +31,7 @@ resource "mcma_service" "service" {
 }
 
 resource "mcma_job_profile" "copy_file" {
-  name = "CopyFile"
+  name = "CloudCopyFile"
 
   input_parameter {
     name = "sourceFile"
@@ -56,7 +56,7 @@ resource "mcma_job_profile" "copy_file" {
   }
 }
 resource "mcma_job_profile" "copy_folder" {
-  name = "CopyFolder"
+  name = "CloudCopyFolder"
 
   input_parameter {
     name = "sourceFolder"

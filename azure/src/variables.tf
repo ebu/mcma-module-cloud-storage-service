@@ -136,7 +136,7 @@ variable "azure_storage_accounts" {
 variable "max_concurrency" {
   type        = number
   description = "Set number of max concurrent transfers"
-  default     = 32
+  default     = 8
 }
 
 variable "multipart_size" {

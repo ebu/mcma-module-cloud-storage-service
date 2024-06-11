@@ -14,8 +14,8 @@ export function buildWorker(dbTableProvider: DocumentDatabaseTableProvider, logg
     });
 
     const processJobAssignmentOperation = new ProcessJobAssignmentOperation(StorageJob)
-        .addProfile("CopyFile", copyFile)
-        .addProfile("CopyFolder", copyFolder);
+        .addProfile("CloudCopyFile", copyFile)
+        .addProfile("CloudCopyFolder", copyFolder);
 
     return new Worker(providerCollection)
         .addOperation(processJobAssignmentOperation)

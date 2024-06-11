@@ -59,9 +59,6 @@ export class StorageClientFactory {
             throw new McmaException(`Storage client config not found for S3 bucket '${bucket}'`);
         }
 
-        console.log(`StorageClientFactory.getS3Client(${bucket}}`);
-        console.log(JSON.stringify(bucketConfig, null, 2));
-
         const credentials: AwsCredentialIdentity = bucketConfig.accessKey && bucketConfig.secretKey ? {
             accessKeyId: bucketConfig.accessKey,
             secretAccessKey: bucketConfig.secretKey

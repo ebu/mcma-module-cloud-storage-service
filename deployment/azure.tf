@@ -150,7 +150,7 @@ module "job_processor_azure" {
     mcma = mcma.azure
   }
 
-  source = "https://ch-ebu-mcma-module-repository.s3.eu-central-1.amazonaws.com/ebu/job-processor/azure/0.16.12/module.zip"
+  source = "https://ch-ebu-mcma-module-repository.s3.eu-central-1.amazonaws.com/ebu/job-processor/azure/0.16.13/module.zip"
   prefix = "${var.prefix}-jp"
 
   resource_group      = azurerm_resource_group.resource_group

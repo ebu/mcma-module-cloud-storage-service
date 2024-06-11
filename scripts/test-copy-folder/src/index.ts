@@ -14,7 +14,7 @@ import { BlobStorageLocator, buildBlobStorageUrl } from "@mcma/azure-blob-storag
 
 const credentials = fromIni();
 
-const JOB_PROFILE = "CopyFolder";
+const JOB_PROFILE = "CloudCopyFolder";
 
 const TERRAFORM_OUTPUT = "../../deployment/terraform.output.json";
 

@@ -15,7 +15,7 @@ import { S3Helper } from "./s3-helper";
 
 const credentials = fromIni();
 
-const JOB_PROFILE = "CopyFile";
+const JOB_PROFILE = "CloudCopyFile";
 
 const TERRAFORM_OUTPUT = "../../deployment/terraform.output.json";
 
