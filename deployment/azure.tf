@@ -119,7 +119,7 @@ resource "azurerm_application_insights" "app_insights" {
 #########################
 
 module "service_registry_azure" {
-  source = "https://ch-ebu-mcma-module-repository.s3.eu-central-1.amazonaws.com/ebu/service-registry/azure/0.16.9/module.zip"
+  source = "https://ch-ebu-mcma-module-repository.s3.eu-central-1.amazonaws.com/ebu/service-registry/azure/0.16.10/module.zip"
 
   prefix = "${var.prefix}-sr"
 
@@ -150,7 +150,7 @@ module "job_processor_azure" {
     mcma = mcma.azure
   }
 
-  source = "https://ch-ebu-mcma-module-repository.s3.eu-central-1.amazonaws.com/ebu/job-processor/azure/0.16.13/module.zip"
+  source = "https://ch-ebu-mcma-module-repository.s3.eu-central-1.amazonaws.com/ebu/job-processor/azure/0.16.14/module.zip"
   prefix = "${var.prefix}-jp"
 
   resource_group      = azurerm_resource_group.resource_group
