@@ -13,6 +13,12 @@ variable "prefix" {
   description = "Prefix for all managed resources in this module"
 }
 
+variable "job_profile_prefix" {
+  type        = string
+  description = "Prefix added to the name of the created job profiles"
+  default     = ""
+}
+
 variable "log_group" {
   type = object({
     id   = string

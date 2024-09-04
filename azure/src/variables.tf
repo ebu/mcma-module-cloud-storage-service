@@ -13,6 +13,12 @@ variable "prefix" {
   description = "Prefix for all managed resources in this module"
 }
 
+variable "job_profile_prefix" {
+  type        = string
+  description = "Prefix added to the name of the created job profiles"
+  default     = ""
+}
+
 variable "resource_group" {
   type = object({
     name     = string
@@ -103,8 +109,8 @@ variable "custom_job_types" {
 
 variable "service_registry" {
   type = object({
-    auth_type   = string,
-    service_url = string,
+    auth_type   = string
+    service_url = string
   })
 }
 
