@@ -2,7 +2,7 @@ import { JobStatus, Locator, ProblemDetail, StorageJob, Utils } from "@mcma/core
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
-import { FileCopier, SourceFile, TargetFile, WorkerContext } from "../index";
+import { FileCopier, SourceFile, DestinationFile, WorkerContext } from "../index";
 import { logError, saveFileCopierState } from "./utils";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
@@ -49,7 +49,7 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
     });
 
     const sourceLocator = jobInput.sourceFile as Locator;
-    const targetLocator = jobInput.targetFile as Locator;
+    const targetLocator = jobInput.destinationFile as Locator;
 
     const sourceFile: SourceFile = {
         locator: sourceLocator,
@@ -57,11 +57,11 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
         egressAuthType: jobInput.sourceEgressAuthType,
     };
 
-    const targetFile: TargetFile = {
+    const destinationFile: DestinationFile = {
         locator: targetLocator
     };
 
-    fileCopier.addFile(sourceFile, targetFile);
+    fileCopier.addFile(sourceFile, destinationFile);
 
     await fileCopier.runUntil(runUntilDate, bailOutDate);
 

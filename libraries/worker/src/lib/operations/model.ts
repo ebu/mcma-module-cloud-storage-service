@@ -6,7 +6,7 @@ export interface SourceFile {
     egressAuthType?: string;
 }
 
-export interface TargetFile {
+export interface DestinationFile {
     locator: Locator;
 }
 
@@ -30,7 +30,7 @@ export interface MultipartSegment {
 export interface WorkItem {
     type: WorkType;
     sourceFile: SourceFile;
-    targetFile: TargetFile;
+    destinationFile: DestinationFile;
     retries: number;
     sourceUrl?: string;
     sourceHeaders?: { [key: string]: string };

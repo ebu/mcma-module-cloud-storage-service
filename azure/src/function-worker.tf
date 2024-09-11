@@ -54,6 +54,8 @@ resource "azurerm_windows_function_app" "worker" {
 
     MCMA_WORKER_FUNCTION_ID = azurerm_storage_queue.worker.id
 
+    JOB_PROFILE_PREFIX = var.job_profile_prefix
+
     STORAGE_CLIENT_CONFIG_SECRET_ID = azurerm_key_vault_secret.storage_client_config.name
     STORAGE_CLIENT_CONFIG_HASH      = sha256(azurerm_key_vault_secret.storage_client_config.value)
 

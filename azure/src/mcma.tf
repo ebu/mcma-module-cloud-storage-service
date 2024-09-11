@@ -51,7 +51,7 @@ resource "mcma_job_profile" "copy_file" {
   }
 
   input_parameter {
-    name = "targetFile"
+    name = "destinationFile"
     type = "Locator"
   }
 }
@@ -76,7 +76,7 @@ resource "mcma_job_profile" "copy_folder" {
   }
 
   input_parameter {
-    name = "targetFolder"
+    name = "destinationFolder"
     type = "Locator"
   }
 }

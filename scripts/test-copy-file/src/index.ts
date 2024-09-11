@@ -88,7 +88,7 @@ async function waitForJobCompletion(job: Job, resourceManager: ResourceManager):
     return job;
 }
 
-async function startJob(resourceManager: ResourceManager, sourceFile: Locator, targetFile: Locator) {
+async function startJob(resourceManager: ResourceManager, sourceFile: Locator, destinationFile: Locator) {
     let [jobProfile] = await resourceManager.query(JobProfile, { name: JOB_PROFILE });
 
     // if not found bail out
@@ -100,7 +100,7 @@ async function startJob(resourceManager: ResourceManager, sourceFile: Locator, t
         jobProfileId: jobProfile.id,
         jobInput: new JobParameterBag({
             sourceFile,
-            targetFile
+            destinationFile
         }),
         tracker: new McmaTracker({
             "id": uuidv4(),
@@ -111,11 +111,11 @@ async function startJob(resourceManager: ResourceManager, sourceFile: Locator, t
     return resourceManager.create(job);
 }
 
-async function testJob(resourceManager: ResourceManager, sourceFile: Locator, targetFile: Locator) {
+async function testJob(resourceManager: ResourceManager, sourceFile: Locator, destinationFile: Locator) {
     let job;
 
     console.log("Creating job");
-    job = await startJob(resourceManager, sourceFile, targetFile);
+    job = await startJob(resourceManager, sourceFile, destinationFile);
 
     console.log("job.id = " + job.id);
     job = await waitForJobCompletion(job, resourceManager);

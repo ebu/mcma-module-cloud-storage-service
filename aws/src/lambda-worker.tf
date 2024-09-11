@@ -3,20 +3,20 @@
 #################################
 
 locals {
-  lambda_name_worker = format("%.64s", replace("${var.prefix}-worker", "/[^a-zA-Z0-9_]+/", "-" ))
+  lambda_name_worker = format("%.64s", replace("${var.prefix}-worker", "/[^a-zA-Z0-9_]+/", "-"))
 }
 
 resource "aws_iam_role" "worker" {
-  name = format("%.64s", replace("${var.prefix}-${var.aws_region}-worker", "/[^a-zA-Z0-9_]+/", "-" ))
+  name = format("%.64s", replace("${var.prefix}-${var.aws_region}-worker", "/[^a-zA-Z0-9_]+/", "-"))
   path = var.iam_role_path
 
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
-        Sid       = "AllowLambdaAssumingRole"
-        Effect    = "Allow"
-        Action    = "sts:AssumeRole"
+        Sid    = "AllowLambdaAssumingRole"
+        Effect = "Allow"
+        Action = "sts:AssumeRole"
         Principal = {
           Service = "lambda.amazonaws.com"
         }
@@ -34,7 +34,7 @@ resource "aws_iam_role_policy" "worker" {
   role = aws_iam_role.worker.id
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = concat([
       {
         Sid      = "DescribeCloudWatchLogs"
@@ -53,7 +53,7 @@ resource "aws_iam_role_policy" "worker" {
         Resource = concat([
           "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:${var.log_group.name}:*",
           "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.lambda_name_worker}:*",
-        ], var.enhanced_monitoring_enabled ? [
+          ], var.enhanced_monitoring_enabled ? [
           "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda-insights:*",
         ] : [])
       },
@@ -94,15 +94,15 @@ resource "aws_iam_role_policy" "worker" {
         Resource = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.lambda_name_worker}"
       },
       {
-        Sid      = "AllowReadingApiKey"
-        Effect   = "Allow"
-        Action   = "secretsmanager:GetSecretValue"
+        Sid    = "AllowReadingApiKey"
+        Effect = "Allow"
+        Action = "secretsmanager:GetSecretValue"
         Resource = [
           aws_secretsmanager_secret.api_key.arn,
           aws_secretsmanager_secret.storage_client_config.arn
         ]
       },
-    ],
+      ],
       length(var.execute_api_arns) > 0 ?
       [
         {
@@ -182,6 +182,7 @@ resource "aws_lambda_function" "worker" {
       MCMA_SERVICE_REGISTRY_AUTH_TYPE = var.service_registry.auth_type
       MCMA_WORKER_FUNCTION_ID         = local.lambda_name_worker
       MCMA_API_KEY_SECRET_ID          = aws_secretsmanager_secret.api_key.name
+      JOB_PROFILE_PREFIX              = var.job_profile_prefix
       STORAGE_CLIENT_CONFIG_SECRET_ID = aws_secretsmanager_secret.storage_client_config.name
       STORAGE_CLIENT_CONFIG_HASH      = sha256(aws_secretsmanager_secret_version.storage_client_config.secret_string)
       MAX_CONCURRENCY                 = var.max_concurrency

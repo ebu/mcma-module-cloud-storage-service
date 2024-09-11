@@ -6,7 +6,7 @@ import { BlobStorageLocator, buildBlobStorageUrl } from "@mcma/azure-blob-storag
 import { S3Helper } from "./s3-helper";
 import { S3Client } from "@aws-sdk/client-s3";
 import { buildS3Url, S3Locator } from "@mcma/aws-s3";
-import { SourceFile, TargetFile } from "@local/worker";
+import { SourceFile, DestinationFile } from "@local/worker";
 import { FileCopier } from "@local/worker";
 import * as mime from "mime-types";
 
@@ -109,7 +109,7 @@ async function testCopyFromS3ToS3SmallFile() {
     const sourceLocator = await uploadFileToBucket(SMALL_FILE, s3BucketUsEast1.bucket, prefix);
     const sourceFile: SourceFile = { locator: sourceLocator };
 
-    const targetFile: TargetFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.key, s3BucketEuWest1.region) }) };
+    const destinationFile: DestinationFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.key, s3BucketEuWest1.region) }) };
 
     const fileCopier = new FileCopier({
         logger,
@@ -119,7 +119,7 @@ async function testCopyFromS3ToS3SmallFile() {
         progressUpdate,
     });
 
-    fileCopier.addFile(sourceFile, targetFile);
+    fileCopier.addFile(sourceFile, destinationFile);
     await fileCopier.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
 }
 
@@ -131,7 +131,7 @@ async function testCopyFromS3ToS3BigFile() {
     const sourceLocator = await uploadFileToBucket(BIG_FILE, s3BucketUsEast1.bucket, prefix);
     const sourceFile: SourceFile = { locator: sourceLocator };
 
-    const targetFile: TargetFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.key, s3BucketEuWest1.region) }) };
+    const destinationFile: DestinationFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.key, s3BucketEuWest1.region) }) };
 
     const fileCopier = new FileCopier({
         logger,
@@ -141,7 +141,7 @@ async function testCopyFromS3ToS3BigFile() {
         progressUpdate,
     });
 
-    fileCopier.addFile(sourceFile, targetFile);
+    fileCopier.addFile(sourceFile, destinationFile);
     await fileCopier.runUntil(new Date(Date.now() + 30000), new Date(Date.now() + 120000));
     const state = fileCopier.getState();
 
@@ -177,7 +177,7 @@ async function testCopyFromBlobStorageToBlobStorageSmallFile() {
     const sourceLocator = await uploadFileToContainer(SMALL_FILE, containerClients[azureWestEuropeStorageAccount.account]["source"], prefix);
     const sourceFile: SourceFile = { locator: sourceLocator };
 
-    const targetFile: TargetFile = { locator: new BlobStorageLocator({ url: buildBlobStorageUrl(azureEastUsContainerStorageAccount.account, "target", sourceLocator.blobName) }) };
+    const destinationFile: DestinationFile = { locator: new BlobStorageLocator({ url: buildBlobStorageUrl(azureEastUsContainerStorageAccount.account, "target", sourceLocator.blobName) }) };
 
     const fileCopier = new FileCopier({
         logger,
@@ -188,7 +188,7 @@ async function testCopyFromBlobStorageToBlobStorageSmallFile() {
         progressUpdate,
     });
 
-    fileCopier.addFile(sourceFile, targetFile);
+    fileCopier.addFile(sourceFile, destinationFile);
     await fileCopier.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
 }
 
@@ -201,7 +201,7 @@ async function testCopyFromBlobStorageToBlobStorageBigFile() {
     const sourceLocator = await uploadFileToContainer(BIG_FILE, containerClients[azureWestEuropeStorageAccount.account]["source"], prefix);
     const sourceFile: SourceFile = { locator: sourceLocator };
 
-    const targetFile: TargetFile = { locator: new BlobStorageLocator({ url: buildBlobStorageUrl(azureEastUsContainerStorageAccount.account, "target", sourceLocator.blobName) }) };
+    const destinationFile: DestinationFile = { locator: new BlobStorageLocator({ url: buildBlobStorageUrl(azureEastUsContainerStorageAccount.account, "target", sourceLocator.blobName) }) };
 
     const fileCopier = new FileCopier({
         logger,
@@ -211,7 +211,7 @@ async function testCopyFromBlobStorageToBlobStorageBigFile() {
         progressUpdate,
     });
 
-    fileCopier.addFile(sourceFile, targetFile);
+    fileCopier.addFile(sourceFile, destinationFile);
     await fileCopier.runUntil(new Date(Date.now() + 30000), new Date(Date.now() + 120000));
 
     await Utils.sleep(5000);
@@ -246,7 +246,7 @@ async function testCopyFromBlobStorageToS3SmallFile() {
     const sourceLocator = await uploadFileToContainer(SMALL_FILE, containerClients[azureWestEuropeStorageAccount.account]["source"], prefix);
     const sourceFile: SourceFile = { locator: sourceLocator };
 
-    const targetFile: TargetFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.blobName, s3BucketEuWest1.region) }) };
+    const destinationFile: DestinationFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.blobName, s3BucketEuWest1.region) }) };
 
     const fileCopier = new FileCopier({
         logger,
@@ -256,7 +256,7 @@ async function testCopyFromBlobStorageToS3SmallFile() {
         progressUpdate,
     });
 
-    fileCopier.addFile(sourceFile, targetFile);
+    fileCopier.addFile(sourceFile, destinationFile);
     await fileCopier.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
 }
 
@@ -268,7 +268,7 @@ async function testCopyFromBlobStorageToS3BigFile() {
     const sourceLocator = await uploadFileToContainer(BIG_FILE, containerClients[azureWestEuropeStorageAccount.account]["source"], prefix);
     const sourceFile: SourceFile = { locator: sourceLocator };
 
-    const targetFile: TargetFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.blobName, s3BucketEuWest1.region) }) };
+    const destinationFile: DestinationFile = { locator: new S3Locator({ url: await buildS3Url(s3BucketEuWest1.bucket, sourceLocator.blobName, s3BucketEuWest1.region) }) };
 
     const fileCopier = new FileCopier({
         logger,
@@ -278,7 +278,7 @@ async function testCopyFromBlobStorageToS3BigFile() {
         progressUpdate,
     });
 
-    fileCopier.addFile(sourceFile, targetFile);
+    fileCopier.addFile(sourceFile, destinationFile);
     await fileCopier.runUntil(new Date(Date.now() + 30000), new Date(Date.now() + 120000));
 
     await Utils.sleep(5000);
