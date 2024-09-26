@@ -1,9 +1,8 @@
 import * as fs from "fs";
 import * as path from "path";
-import * as mime from "mime-types";
 
 import { v4 as uuidv4 } from "uuid";
-import { S3Client, HeadObjectCommand, PutObjectCommand, PutObjectCommandInput } from "@aws-sdk/client-s3";
+import { S3Client } from "@aws-sdk/client-s3";
 import { fromIni } from "@aws-sdk/credential-providers";
 
 import { AuthProvider, mcmaApiKeyAuth, ResourceManager, ResourceManagerConfig } from "@mcma/client";
@@ -15,7 +14,7 @@ import { S3Helper } from "./s3-helper";
 
 const credentials = fromIni();
 
-const JOB_PROFILE = "CloudCopyFile";
+const JOB_PROFILE = "CopyFile";
 
 const TERRAFORM_OUTPUT = "../../deployment/terraform.output.json";
 
@@ -50,7 +49,7 @@ async function uploadFileToBucket(bucket: string, filename: string, s3Client: S3
         console.log("File Error", err);
     });
 
-    const s3Helper = new S3Helper({ s3ClientProvider: async (bucket: string) => s3Client});
+    const s3Helper = new S3Helper({ s3ClientProvider: async (_: string) => s3Client});
 
     const key = path.basename(filename);
 

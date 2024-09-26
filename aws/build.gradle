@@ -1,18 +1,18 @@
-apply from: "${project.rootDir}/gradle-tasks-for-module.gradle"
-
 task copyApiHandler(type: Copy) {
     dependsOn "api-handler:build"
     from file("api-handler/build/dist/lambda.zip")
-    into "build/staging/lambdas"
+    into "module/lambdas"
     rename { "api-handler.zip" }
 }
 
 task copyWorker(type: Copy) {
     dependsOn "worker:build"
     from file("worker/build/dist/lambda.zip")
-    into "build/staging/lambdas"
+    into "module/lambdas"
     rename { "worker.zip" }
 }
 
-build.dependsOn copyApiHandler
-build.dependsOn copyWorker
+task build {
+    dependsOn copyApiHandler
+    dependsOn copyWorker
+}

@@ -7,23 +7,23 @@
         "start": "node build/staging/index.js"
     },
     "main": "build/staging/index.js",
-    "license": "UNLICENSED",
+    "license": "Apache-2.0",
     "dependencies": {
-        "@aws-sdk/client-s3": "^3.598.0",
-        "@aws-sdk/credential-providers": "^3.598.0",
-        "@aws-sdk/s3-request-presigner": "^3.598.0",
-        "@azure/storage-blob": "^12.23.0",
+        "@aws-sdk/client-s3": "^3.658.0",
+        "@aws-sdk/credential-providers": "^3.658.0",
+        "@aws-sdk/s3-request-presigner": "^3.658.0",
+        "@azure/storage-blob": "^12.25.0",
         "@mcma/aws-client": "0.16.21",
         "@mcma/aws-s3": "0.16.21",
         "@mcma/azure-blob-storage": "0.16.21",
         "@mcma/client": "0.16.21",
         "@mcma/core": "0.16.21",
         "mime-types": "^2.1.35",
-        "uuid": "^9.0.1"
+        "uuid": "^10.0.0"
     },
     "devDependencies": {
-        "@types/node": "^18.19.34",
-        "@types/uuid": "^9.0.8",
+        "@types/node": "^18.19.51",
+        "@types/uuid": "^10.0.0",
         "@types/mime-types": "^2.1.4"
     }
 }
