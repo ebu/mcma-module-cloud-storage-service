@@ -47,7 +47,7 @@ resource "azurerm_resource_group" "resource_group_east_us" {
 # App Storage Account
 ######################
 
-resource "azurerm_storage_account" "app_storage_account" {
+resource "azurerm_storage_account" "storage_account" {
   name                     = format("%.24s", replace("${var.prefix}-${azurerm_resource_group.resource_group.location}", "/[^a-z0-9]+/", ""))
   resource_group_name      = azurerm_resource_group.resource_group.name
   location                 = azurerm_resource_group.resource_group.location
@@ -59,7 +59,7 @@ resource "azurerm_storage_account" "app_storage_account" {
 # App Storage Account
 ######################
 
-resource "azurerm_storage_account" "app_storage_account_east_us" {
+resource "azurerm_storage_account" "storage_account_east_us" {
   name                     = format("%.24s", replace("${var.prefix}-${azurerm_resource_group.resource_group_east_us.location}", "/[^a-z0-9]+/", ""))
   resource_group_name      = azurerm_resource_group.resource_group_east_us.name
   location                 = azurerm_resource_group.resource_group_east_us.location
@@ -85,15 +85,16 @@ resource "azurerm_cosmosdb_account" "cosmosdb_account" {
     failover_priority = 0
     location          = azurerm_resource_group.resource_group.location
   }
+
+  capabilities {
+    name = "EnableServerless"
+  }
 }
 
 resource "azurerm_cosmosdb_sql_database" "cosmosdb_database" {
   name                = var.prefix
   resource_group_name = azurerm_resource_group.resource_group.name
   account_name        = azurerm_cosmosdb_account.cosmosdb_account.name
-  autoscale_settings {
-    max_throughput = 1000
-  }
 }
 
 ########################
@@ -119,15 +120,17 @@ resource "azurerm_application_insights" "app_insights" {
 #########################
 
 module "service_registry_azure" {
-  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=v0.16.15"
+  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=nodejs22"
 
   prefix = "${var.prefix}-sr"
 
-  resource_group      = azurerm_resource_group.resource_group
-  app_storage_account = azurerm_storage_account.app_storage_account
-  app_insights        = azurerm_application_insights.app_insights
-  cosmosdb_account    = azurerm_cosmosdb_account.cosmosdb_account
-  cosmosdb_database   = azurerm_cosmosdb_sql_database.cosmosdb_database
+  resource_group    = azurerm_resource_group.resource_group
+  storage_account   = azurerm_storage_account.storage_account
+  app_insights      = azurerm_application_insights.app_insights
+  cosmosdb_account  = azurerm_cosmosdb_account.cosmosdb_account
+  cosmosdb_database = azurerm_cosmosdb_sql_database.cosmosdb_database
+
+  use_flex_consumption_plan = false
 
   api_keys_read_only = [
     module.job_processor_azure.api_key,
@@ -138,7 +141,7 @@ module "service_registry_azure" {
     random_password.deployment_api_key.result
   ]
 
-  key_vault_secret_expiration_date = "2100-01-01T00:00:00Z"
+  key_vault_secret_expiration_date = "2200-01-01T00:00:00Z"
 }
 
 #########################
@@ -150,14 +153,17 @@ module "job_processor_azure" {
     mcma = mcma.azure
   }
 
-  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=v0.16.17"
+  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=nodejs22"
+
   prefix = "${var.prefix}-jp"
 
-  resource_group      = azurerm_resource_group.resource_group
-  app_storage_account = azurerm_storage_account.app_storage_account
-  app_insights        = azurerm_application_insights.app_insights
-  cosmosdb_account    = azurerm_cosmosdb_account.cosmosdb_account
-  cosmosdb_database   = azurerm_cosmosdb_sql_database.cosmosdb_database
+  use_flex_consumption_plan = false
+
+  resource_group    = azurerm_resource_group.resource_group
+  storage_account   = azurerm_storage_account.storage_account
+  app_insights      = azurerm_application_insights.app_insights
+  cosmosdb_account  = azurerm_cosmosdb_account.cosmosdb_account
+  cosmosdb_database = azurerm_cosmosdb_sql_database.cosmosdb_database
 
   service_registry = module.service_registry_azure
 
@@ -166,7 +172,7 @@ module "job_processor_azure" {
     module.cloud_storage_service_azure.api_key,
   ]
 
-  key_vault_secret_expiration_date = "2100-01-01T00:00:00Z"
+  key_vault_secret_expiration_date = "2200-01-01T00:00:00Z"
 }
 
 module "cloud_storage_service_azure" {
@@ -178,11 +184,13 @@ module "cloud_storage_service_azure" {
 
   prefix = "${var.prefix}-css"
 
-  resource_group      = azurerm_resource_group.resource_group
-  app_storage_account = azurerm_storage_account.app_storage_account
-  app_insights        = azurerm_application_insights.app_insights
-  cosmosdb_account    = azurerm_cosmosdb_account.cosmosdb_account
-  cosmosdb_database   = azurerm_cosmosdb_sql_database.cosmosdb_database
+  use_flex_consumption_plan = false
+
+  resource_group    = azurerm_resource_group.resource_group
+  storage_account   = azurerm_storage_account.storage_account
+  app_insights      = azurerm_application_insights.app_insights
+  cosmosdb_account  = azurerm_cosmosdb_account.cosmosdb_account
+  cosmosdb_database = azurerm_cosmosdb_sql_database.cosmosdb_database
 
   service_registry = module.service_registry_azure
 
@@ -227,14 +235,14 @@ module "cloud_storage_service_azure" {
 
   azure_storage_accounts = [
     {
-      account           = azurerm_storage_account.app_storage_account.name
-      connection_string = azurerm_storage_account.app_storage_account.primary_connection_string
+      account           = azurerm_storage_account.storage_account.name
+      connection_string = azurerm_storage_account.storage_account.primary_connection_string
     },
     {
-      account           = azurerm_storage_account.app_storage_account_east_us.name
-      connection_string = azurerm_storage_account.app_storage_account_east_us.primary_connection_string
+      account           = azurerm_storage_account.storage_account_east_us.name
+      connection_string = azurerm_storage_account.storage_account_east_us.primary_connection_string
     },
   ]
 
-  key_vault_secret_expiration_date = "2100-01-01T00:00:00Z"
+  key_vault_secret_expiration_date = "2200-01-01T00:00:00Z"
 }

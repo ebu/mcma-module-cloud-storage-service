@@ -19,13 +19,6 @@ variable "job_profile_prefix" {
   default     = ""
 }
 
-variable "resource_group" {
-  type = object({
-    name     = string
-    location = string
-  })
-}
-
 variable "tags" {
   type        = map(string)
   description = "Tags applied to created resources"
@@ -36,14 +29,38 @@ variable "tags" {
 # Azure accounts and plans
 ###########################
 
-variable "app_storage_account" {
+variable "use_flex_consumption_plan" {
+  type        = bool
+  description = "Allow enabling / disabling the usage of flex consumption plan"
+  default     = true
+}
+
+
+variable "function_elastic_instance_minimum" {
+  type        = number
+  description = "Set the minimum instance number for azure functions when using premium plan"
+  default     = null
+}
+
+variable "resource_group" {
   type = object({
-    name               = string
-    primary_access_key = string
+    id       = string
+    name     = string
+    location = string
   })
 }
 
-variable "app_service_plan" {
+variable "storage_account" {
+  type = object({
+    id                        = string
+    name                      = string
+    primary_access_key        = string
+    primary_connection_string = string
+    primary_blob_endpoint     = string
+  })
+}
+
+variable "service_plan" {
   type = object({
     id   = string
     name = string
@@ -148,17 +165,11 @@ variable "max_concurrency" {
 variable "multipart_size" {
   type        = number
   description = "Set multipart size for files bigger than this value"
-  default     = 67108864   // 64MiB
+  default     = 67108864 // 64MiB
 }
 
 variable "worker_function_timeout" {
   type        = string
   description = "Set the timeout for the worker function. Valid values depend on chosen app service plan"
-  default     = "00:10:00"
-}
-
-variable "function_elastic_instance_minimum" {
-  type        = number
-  description = "Set the minimum instance number for azure functions when using premium plan"
   default     = null
 }

@@ -33,12 +33,12 @@ resource "aws_s3_bucket_policy" "public" {
 
   bucket = aws_s3_bucket.public.id
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Effect    = "Allow"
         Principal = "*"
-        Action    = [
+        Action = [
           "s3:GetObject"
         ]
         Resource : [
@@ -128,9 +128,9 @@ resource "aws_iam_access_key" "bucket_access" {
 }
 
 resource "aws_iam_user_policy" "bucket_access" {
-  user   = aws_iam_user.private_ext.id
+  user = aws_iam_user.private_ext.id
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
         Effect = "Allow"
@@ -191,7 +191,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "target" {
 resource "azurerm_storage_container" "source_west_europe" {
   name = "source"
 
-  storage_account_name = azurerm_storage_account.app_storage_account.name
+  storage_account_id = azurerm_storage_account.storage_account.id
 }
 
 ########################################
@@ -200,7 +200,7 @@ resource "azurerm_storage_container" "source_west_europe" {
 resource "azurerm_storage_container" "target_west_europe" {
   name = "target"
 
-  storage_account_name = azurerm_storage_account.app_storage_account.name
+  storage_account_id = azurerm_storage_account.storage_account.id
 }
 
 ########################################
@@ -209,7 +209,7 @@ resource "azurerm_storage_container" "target_west_europe" {
 resource "azurerm_storage_container" "source_east_us" {
   name = "source"
 
-  storage_account_name = azurerm_storage_account.app_storage_account_east_us.name
+  storage_account_id = azurerm_storage_account.storage_account_east_us.id
 }
 
 ########################################
@@ -218,5 +218,5 @@ resource "azurerm_storage_container" "source_east_us" {
 resource "azurerm_storage_container" "target_east_us" {
   name = "target"
 
-  storage_account_name = azurerm_storage_account.app_storage_account_east_us.name
+  storage_account_id = azurerm_storage_account.storage_account_east_us.id
 }

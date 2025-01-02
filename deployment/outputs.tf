@@ -7,7 +7,7 @@ output "service_registry_aws" {
 
 output "job_processor_aws" {
   sensitive = true
-  value     = {
+  value = {
     auth_type   = module.job_processor_aws.auth_type
     service_url = module.job_processor_aws.service_url
     api_key     = module.job_processor_aws.api_key
@@ -16,7 +16,7 @@ output "job_processor_aws" {
 
 output "cloud_storage_service_aws" {
   sensitive = true
-  value     = {
+  value = {
     auth_type   = module.cloud_storage_service_aws.auth_type
     service_url = module.cloud_storage_service_aws.service_url
     api_key     = module.cloud_storage_service_aws.api_key
@@ -32,7 +32,7 @@ output "service_registry_azure" {
 
 output "job_processor_azure" {
   sensitive = true
-  value     = {
+  value = {
     auth_type   = module.job_processor_azure.auth_type
     service_url = module.job_processor_azure.service_url
     api_key     = module.job_processor_azure.api_key
@@ -41,7 +41,7 @@ output "job_processor_azure" {
 
 output "cloud_storage_service_azure" {
   sensitive = true
-  value     = {
+  value = {
     auth_type   = module.cloud_storage_service_azure.auth_type
     service_url = module.cloud_storage_service_azure.service_url
     api_key     = module.cloud_storage_service_azure.api_key
@@ -67,7 +67,7 @@ output "azure_location" {
 
 output "storage_locations" {
   sensitive = true
-  value     = {
+  value = {
     aws_s3_buckets = [
       {
         bucket     = aws_s3_bucket.private.id
@@ -104,12 +104,12 @@ output "storage_locations" {
 
     azure_storage_accounts = [
       {
-        account           = azurerm_storage_account.app_storage_account.name
-        connection_string = azurerm_storage_account.app_storage_account.primary_connection_string
+        account           = azurerm_storage_account.storage_account.name
+        connection_string = azurerm_storage_account.storage_account.primary_connection_string
       },
       {
-        account           = azurerm_storage_account.app_storage_account_east_us.name
-        connection_string = azurerm_storage_account.app_storage_account_east_us.primary_connection_string
+        account           = azurerm_storage_account.storage_account_east_us.name
+        connection_string = azurerm_storage_account.storage_account_east_us.primary_connection_string
       },
     ]
   }

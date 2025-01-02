@@ -42,7 +42,7 @@ resource "aws_cloudwatch_log_group" "main" {
 #########################
 
 module "service_registry_aws" {
-  source = "github.com/ebu/mcma-module-service-registry//aws/module?ref=v0.16.15"
+  source = "github.com/ebu/mcma-module-service-registry//aws/module?ref=nodejs22"
 
   prefix = "${var.prefix}-service-registry"
 
@@ -71,7 +71,7 @@ module "job_processor_aws" {
     mcma = mcma.aws
   }
 
-  source = "github.com/ebu/mcma-module-job-processor//aws/module?ref=v0.16.17"
+  source = "github.com/ebu/mcma-module-job-processor//aws/module?ref=nodejs22"
 
   prefix = "${var.prefix}-job-processor"
 
@@ -145,12 +145,12 @@ module "cloud_storage_service_aws" {
 
   azure_storage_accounts = [
     {
-      account           = azurerm_storage_account.app_storage_account.name
-      connection_string = azurerm_storage_account.app_storage_account.primary_connection_string
+      account           = azurerm_storage_account.storage_account.name
+      connection_string = azurerm_storage_account.storage_account.primary_connection_string
     },
     {
-      account           = azurerm_storage_account.app_storage_account_east_us.name
-      connection_string = azurerm_storage_account.app_storage_account_east_us.primary_connection_string
+      account           = azurerm_storage_account.storage_account_east_us.name
+      connection_string = azurerm_storage_account.storage_account_east_us.primary_connection_string
     },
   ]
 }

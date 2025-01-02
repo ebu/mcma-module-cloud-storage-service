@@ -113,6 +113,11 @@ async function startJob(resourceManager: ResourceManager, sourceFile: Locator, d
 async function testJob(resourceManager: ResourceManager, sourceFile: Locator, destinationFile: Locator) {
     let job;
 
+    if (!sourceFile) {
+        log("Skipped");
+        return;
+    }
+
     console.log("Creating job");
     job = await startJob(resourceManager, sourceFile, destinationFile);
 
