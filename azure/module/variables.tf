@@ -111,16 +111,6 @@ variable "key_vault_secret_expiration_date" {
 }
 
 #########################
-# Custom Job Types
-#########################
-
-variable "custom_job_types" {
-  type        = list(string)
-  description = "Optionally add custom job types"
-  default     = []
-}
-
-#########################
 # Dependencies
 #########################
 

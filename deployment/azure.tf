@@ -15,6 +15,13 @@ provider "azurerm" {
   }
 }
 
+provider "azapi" {
+  tenant_id       = var.azure_tenant_id
+  subscription_id = var.azure_subscription_id
+  client_id       = var.AZURE_CLIENT_ID
+  client_secret   = var.AZURE_CLIENT_SECRET
+}
+
 provider "mcma" {
   alias = "azure"
 
@@ -120,7 +127,7 @@ resource "azurerm_application_insights" "app_insights" {
 #########################
 
 module "service_registry_azure" {
-  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=nodejs22"
+  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=v1.0.0"
 
   prefix = "${var.prefix}-sr"
 
@@ -130,7 +137,7 @@ module "service_registry_azure" {
   cosmosdb_account  = azurerm_cosmosdb_account.cosmosdb_account
   cosmosdb_database = azurerm_cosmosdb_sql_database.cosmosdb_database
 
-  use_flex_consumption_plan = false
+  use_flex_consumption_plan = true
 
   api_keys_read_only = [
     module.job_processor_azure.api_key,
@@ -153,11 +160,11 @@ module "job_processor_azure" {
     mcma = mcma.azure
   }
 
-  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=nodejs22"
+  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=v1.0.0"
 
   prefix = "${var.prefix}-jp"
 
-  use_flex_consumption_plan = false
+  use_flex_consumption_plan = true
 
   resource_group    = azurerm_resource_group.resource_group
   storage_account   = azurerm_storage_account.storage_account
@@ -184,7 +191,7 @@ module "cloud_storage_service_azure" {
 
   prefix = "${var.prefix}-css"
 
-  use_flex_consumption_plan = false
+  use_flex_consumption_plan = true
 
   resource_group    = azurerm_resource_group.resource_group
   storage_account   = azurerm_storage_account.storage_account

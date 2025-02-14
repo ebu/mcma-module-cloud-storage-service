@@ -79,8 +79,9 @@ variable "execute_api_arns" {
 }
 
 variable "api_stage_name" {
-  type    = string
-  default = null
+  type        = string
+  description = "Stage name to be used for the API Gateway deployment"
+  default     = null
 }
 
 #########################
