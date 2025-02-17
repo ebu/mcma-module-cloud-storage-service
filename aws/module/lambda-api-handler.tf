@@ -3,20 +3,20 @@
 ##############################
 
 locals {
-  lambda_name_api_handler = format("%.64s", replace("${var.prefix}-api-handler", "/[^a-zA-Z0-9_]+/", "-" ))
+  lambda_name_api_handler = format("%.64s", replace("${var.prefix}-api-handler", "/[^a-zA-Z0-9_]+/", "-"))
 }
 
 resource "aws_iam_role" "api_handler" {
-  name = format("%.64s", replace("${var.prefix}-${var.aws_region}-api-handler", "/[^a-zA-Z0-9_]+/", "-" ))
+  name = format("%.64s", replace("${var.prefix}-${var.aws_region}-api-handler", "/[^a-zA-Z0-9_]+/", "-"))
   path = var.iam_role_path
 
   assume_role_policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = [
       {
-        Sid       = "AllowLambdaAssumingRole"
-        Effect    = "Allow"
-        Action    = "sts:AssumeRole"
+        Sid    = "AllowLambdaAssumingRole"
+        Effect = "Allow"
+        Action = "sts:AssumeRole"
         Principal = {
           Service = "lambda.amazonaws.com"
         }
@@ -34,7 +34,7 @@ resource "aws_iam_role_policy" "api_handler" {
   role = aws_iam_role.api_handler.id
 
   policy = jsonencode({
-    Version   = "2012-10-17"
+    Version = "2012-10-17"
     Statement = concat([
       {
         Sid      = "DescribeCloudWatchLogs"
@@ -53,7 +53,7 @@ resource "aws_iam_role_policy" "api_handler" {
         Resource = concat([
           "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:${var.log_group.name}:*",
           "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.lambda_name_api_handler}:*",
-        ], var.enhanced_monitoring_enabled ? [
+          ], var.enhanced_monitoring_enabled ? [
           "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda-insights:*",
         ] : [])
       },
@@ -99,7 +99,7 @@ resource "aws_iam_role_policy" "api_handler" {
         Action   = "secretsmanager:GetSecretValue"
         Resource = aws_secretsmanager_secret.api_key.arn
       },
-    ],
+      ],
       length(var.execute_api_arns) > 0 ?
       [
         {
@@ -108,7 +108,7 @@ resource "aws_iam_role_policy" "api_handler" {
           Action   = "execute-api:Invoke"
           Resource = var.execute_api_arns
         }
-      ]: [],
+      ] : [],
       var.api_security_auth_type == "McmaApiKey" ?
       [
         {
@@ -132,7 +132,7 @@ resource "aws_iam_role_policy" "api_handler" {
           ],
           Resource = "*"
         }
-      ] : [])
+    ] : [])
   })
 }
 
@@ -146,7 +146,7 @@ resource "aws_lambda_function" "api_handler" {
   role             = aws_iam_role.api_handler.arn
   handler          = "index.handler"
   source_code_hash = filebase64sha256("${path.module}/lambdas/api-handler.zip")
-  runtime          = "nodejs18.x"
+  runtime          = "nodejs22.x"
   timeout          = "30"
   memory_size      = "2048"
 
