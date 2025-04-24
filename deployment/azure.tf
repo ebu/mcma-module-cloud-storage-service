@@ -75,6 +75,37 @@ resource "azurerm_storage_account" "storage_account_east_us" {
 }
 
 ######################
+# Virtual Network
+######################
+
+resource "azurerm_virtual_network" "virtual_network" {
+  name                = var.prefix
+  resource_group_name = azurerm_resource_group.resource_group.name
+  location            = azurerm_resource_group.resource_group.location
+  address_space       = ["10.0.0.0/16"]
+}
+
+resource "azurerm_subnet" "private" {
+  name                 = "private"
+  resource_group_name  = azurerm_resource_group.resource_group.name
+  virtual_network_name = azurerm_virtual_network.virtual_network.name
+  address_prefixes     = ["10.0.1.0/24"]
+
+  service_endpoints = ["Microsoft.AzureCosmosDB"]
+
+  delegation {
+    name = "delegation"
+
+    service_delegation {
+      name = "Microsoft.App/environments"
+      actions = [
+        "Microsoft.Network/virtualNetworks/subnets/join/action",
+      ]
+    }
+  }
+}
+
+######################
 # Cosmos DB
 ######################
 
@@ -95,6 +126,20 @@ resource "azurerm_cosmosdb_account" "cosmosdb_account" {
 
   capabilities {
     name = "EnableServerless"
+  }
+
+  ip_range_filter = [
+    "13.88.56.148",
+    "13.91.105.215",
+    "4.210.172.107",
+    "40.91.218.243"
+  ]
+
+  is_virtual_network_filter_enabled = true
+
+  virtual_network_rule {
+    id                                   = azurerm_subnet.private.id
+    ignore_missing_vnet_service_endpoint = false
   }
 }
 
@@ -127,7 +172,7 @@ resource "azurerm_application_insights" "app_insights" {
 #########################
 
 module "service_registry_azure" {
-  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=v1.0.0"
+  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=azure-vnet-integration"
 
   prefix = "${var.prefix}-sr"
 
@@ -149,6 +194,8 @@ module "service_registry_azure" {
   ]
 
   key_vault_secret_expiration_date = "2200-01-01T00:00:00Z"
+
+  virtual_network_subnet_id = azurerm_subnet.private.id
 }
 
 #########################
@@ -160,7 +207,7 @@ module "job_processor_azure" {
     mcma = mcma.azure
   }
 
-  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=v1.0.0"
+  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=azure-vnet-integration"
 
   prefix = "${var.prefix}-jp"
 
@@ -180,6 +227,8 @@ module "job_processor_azure" {
   ]
 
   key_vault_secret_expiration_date = "2200-01-01T00:00:00Z"
+
+  virtual_network_subnet_id = azurerm_subnet.private.id
 }
 
 module "cloud_storage_service_azure" {
@@ -252,4 +301,6 @@ module "cloud_storage_service_azure" {
   ]
 
   key_vault_secret_expiration_date = "2200-01-01T00:00:00Z"
+
+  virtual_network_subnet_id = azurerm_subnet.private.id
 }

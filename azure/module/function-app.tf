@@ -169,6 +169,7 @@ resource "azapi_resource" "function_app" {
           },
         ]
       }
+      virtualNetworkSubnetId = var.virtual_network_subnet_id
     }
   }
 }
