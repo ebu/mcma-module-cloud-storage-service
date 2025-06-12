@@ -16,7 +16,6 @@ import { BlobSASPermissions, ContainerClient } from "@azure/storage-blob";
 
 import { Logger, McmaException, Utils } from "@mcma/core";
 import { SecretsProvider } from "@mcma/secrets";
-import { getApiKeySecretId } from "@mcma/client";
 import { isS3Locator } from "@mcma/aws-s3";
 import { isBlobStorageLocator } from "@mcma/azure-blob-storage";
 
@@ -288,21 +287,6 @@ export class FileCopier {
                 if (workItem.sourceFile.egressUrl) {
                     // in case we have an egressUrl, we will use that one.
                     sourceUrl = workItem.sourceFile.egressUrl;
-                    if (workItem.sourceFile.egressAuthType === "McmaApiKey") {
-                        // in case we have McmaApiKey authentication add the correct header
-                        if (!this.config.apiKey) {
-                            if (!this.config.secretsProvider) {
-                                throw new McmaException("FileCopierConfig misses either property 'apiKey' or 'secretsProvider'");
-                            }
-                            if (!this.config.apiKeySecretId) {
-                                this.config.apiKeySecretId = getApiKeySecretId();
-                            }
-
-                            this.config.apiKey = await this.config.secretsProvider.get(this.config.apiKeySecretId);
-                        }
-                        sourceHeaders = {};
-                        sourceHeaders["x-mcma-api-key"] = this.config.apiKey;
-                    }
                 } else {
                     if (isS3Locator(workItem.sourceFile.locator) && isS3Locator(workItem.destinationFile.locator)) {
                         this.logger.info("Source AND Target are S3");

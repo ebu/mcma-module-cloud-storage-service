@@ -59,7 +59,6 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
     const sourceFile: SourceFile = {
         locator: sourceLocator,
         egressUrl: jobInput.sourceEgressUrl,
-        egressAuthType: jobInput.sourceEgressAuthType,
     };
     const destinationFile: DestinationFile = {
         locator: targetLocator
@@ -126,7 +125,6 @@ async function scanSourceFolder(sourceFolder: SourceFile, destinationFolder: Des
                         url: await buildS3Url(sourceFolder.locator.bucket, content.Key, sourceFolder.locator.region)
                     }),
                     egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + content.Key.substring(sourceFolder.locator.key.length) : undefined,
-                    egressAuthType: sourceFolder.egressAuthType,
                 };
 
                 let destinationFile: DestinationFile;
@@ -157,7 +155,6 @@ async function scanSourceFolder(sourceFolder: SourceFile, destinationFolder: Des
                     url: buildBlobStorageUrl(sourceFolder.locator.account, sourceFolder.locator.container, blob.name)
                 }),
                 egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + blob.name.substring(sourceFolder.locator.blobName.length) : undefined,
-                egressAuthType: sourceFolder.egressAuthType,
             };
 
             let destinationFile: DestinationFile;

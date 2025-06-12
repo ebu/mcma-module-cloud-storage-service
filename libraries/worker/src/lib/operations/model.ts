@@ -3,7 +3,6 @@ import { Locator } from "@mcma/core";
 export interface SourceFile {
     locator: Locator;
     egressUrl?: string;
-    egressAuthType?: string;
 }
 
 export interface DestinationFile {

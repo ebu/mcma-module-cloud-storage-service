@@ -7,5 +7,6 @@ include "aws",
         "libraries:worker",
         "scripts",
         "scripts:test-copy-file",
+        "scripts:test-copy-files",
         "scripts:test-copy-folder",
         "scripts:test-worker-lib"

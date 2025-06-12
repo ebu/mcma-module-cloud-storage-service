@@ -54,7 +54,6 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
     const sourceFile: SourceFile = {
         locator: sourceLocator,
         egressUrl: jobInput.sourceEgressUrl,
-        egressAuthType: jobInput.sourceEgressAuthType,
     };
 
     const destinationFile: DestinationFile = {

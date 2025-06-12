@@ -28,6 +28,7 @@ resource "mcma_service" "service" {
 
   job_profile_ids = [
     mcma_job_profile.copy_file.id,
+    mcma_job_profile.copy_files.id,
     mcma_job_profile.copy_folder.id,
   ]
 }
@@ -47,16 +48,20 @@ resource "mcma_job_profile" "copy_file" {
   }
 
   input_parameter {
-    name     = "sourceEgressAuthType"
-    type     = "string"
-    optional = true
-  }
-
-  input_parameter {
     name = "destinationFile"
     type = "Locator"
   }
 }
+
+resource "mcma_job_profile" "copy_files" {
+  name = "${var.job_profile_prefix}CopyFiles"
+
+  input_parameter {
+    name = "transfers"
+    type = "{ sourceFile: Locator, sourceEgressUrl?: string, destinationFile: Locator }[]"
+  }
+}
+
 resource "mcma_job_profile" "copy_folder" {
   name = "${var.job_profile_prefix}CopyFolder"
 
@@ -67,12 +72,6 @@ resource "mcma_job_profile" "copy_folder" {
 
   input_parameter {
     name     = "sourceEgressUrl"
-    type     = "string"
-    optional = true
-  }
-
-  input_parameter {
-    name     = "sourceEgressAuthType"
     type     = "string"
     optional = true
   }
