@@ -1,5 +1,7 @@
 apply from: "${project.rootDir}/gradle-tasks-for-functions.gradle"
 
 npmInstall {
+    dependsOn ":libraries:monitor:npmPack"
+    dependsOn ":libraries:storage:npmPack"
     dependsOn ":libraries:worker:npmPack"
 }

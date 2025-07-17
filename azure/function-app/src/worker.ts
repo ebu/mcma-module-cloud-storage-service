@@ -7,7 +7,8 @@ import { AzureKeyVaultSecretsProvider } from "@mcma/azure-key-vault";
 import { CosmosDbTableProvider, fillOptionsFromConfigVariables } from "@mcma/azure-cosmos-db";
 import { QueueWorkerInvoker } from "@mcma/azure-queue-worker-invoker";
 
-import { buildWorker, WorkerContext, StorageClientFactory } from "@local/worker";
+import { StorageClientFactory } from "@local/storage";
+import { buildWorker, WorkerContext } from "@local/worker";
 
 const loggerProvider = new AppInsightsLoggerProvider("cloud-storage-service-worker");
 const dbTableProvider = new CosmosDbTableProvider(fillOptionsFromConfigVariables());

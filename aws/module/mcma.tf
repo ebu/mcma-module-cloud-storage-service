@@ -26,6 +26,9 @@ resource "mcma_service" "service" {
     mcma_job_profile.copy_file.id,
     mcma_job_profile.copy_files.id,
     mcma_job_profile.copy_folder.id,
+    mcma_job_profile.restore_file.id,
+    mcma_job_profile.restore_files.id,
+    mcma_job_profile.restore_folder.id,
   ]
 }
 
@@ -75,5 +78,68 @@ resource "mcma_job_profile" "copy_folder" {
   input_parameter {
     name = "destinationFolder"
     type = "Locator"
+  }
+}
+
+resource "mcma_job_profile" "restore_file" {
+  name = "${var.job_profile_prefix}RestoreFile"
+
+  input_parameter {
+    name = "file"
+    type = "Locator"
+  }
+
+  input_parameter {
+    name     = "priority"
+    type     = "string"
+    optional = true
+  }
+
+  input_parameter {
+    name     = "durationInDays"
+    type     = "number"
+    optional = true
+  }
+}
+
+resource "mcma_job_profile" "restore_files" {
+  name = "${var.job_profile_prefix}RestoreFiles"
+
+  input_parameter {
+    name = "files"
+    type = "Locator[]"
+  }
+
+  input_parameter {
+    name     = "priority"
+    type     = "string"
+    optional = true
+  }
+
+  input_parameter {
+    name     = "durationInDays"
+    type     = "number"
+    optional = true
+  }
+}
+
+resource "mcma_job_profile" "restore_folder" {
+  name = "${var.job_profile_prefix}RestoreFolder"
+
+  input_parameter {
+    name = "folder"
+    type = "Locator"
+  }
+
+  input_parameter {
+    name     = "priority"
+    type     = "string"
+    optional = true
+  }
+
+  input_parameter {
+    name     = "durationInDays"
+    type     = "number"
+    optional = true
   }
 }

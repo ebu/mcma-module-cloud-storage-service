@@ -3,9 +3,9 @@ import { getTableName } from "@mcma/data";
 import { ProcessJobAssignmentHelper, ProviderCollection, WorkerRequest } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
+import { FileCopier, deleteFileCopierState, loadFileCopierState, logError, saveFileCopierState } from "@local/storage";
+
 import { WorkerContext } from "../worker-context";
-import { FileCopier } from "../operations";
-import { deleteFileCopierState, loadFileCopierState, logError, saveFileCopierState } from "./utils";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 

@@ -12,7 +12,8 @@ import { AwsCloudWatchLoggerProvider, getLogGroupName } from "@mcma/aws-logger";
 import { awsV4Auth } from "@mcma/aws-client";
 import { AwsSecretsManagerSecretsProvider } from "@mcma/aws-secrets-manager";
 
-import { buildWorker, WorkerContext, StorageClientFactory } from "@local/worker";
+import { StorageClientFactory } from "@local/storage";
+import { buildWorker, WorkerContext } from "@local/worker";
 import { LambdaClient } from "@aws-sdk/client-lambda";
 import { LambdaWorkerInvoker } from "@mcma/aws-lambda-worker-invoker";
 

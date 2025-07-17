@@ -5,6 +5,13 @@ task copyApiHandler(type: Copy) {
     rename { "api-handler.zip" }
 }
 
+task copyMonitor(type: Copy) {
+    dependsOn "monitor:build"
+    from file("monitor/build/dist/lambda.zip")
+    into "module/lambdas"
+    rename { "monitor.zip" }
+}
+
 task copyWorker(type: Copy) {
     dependsOn "worker:build"
     from file("worker/build/dist/lambda.zip")
@@ -14,5 +21,6 @@ task copyWorker(type: Copy) {
 
 task build {
     dependsOn copyApiHandler
+    dependsOn copyMonitor
     dependsOn copyWorker
 }

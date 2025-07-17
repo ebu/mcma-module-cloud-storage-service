@@ -1,5 +1,5 @@
 import { SecretsProvider } from "@mcma/secrets";
-import { StorageClientFactory } from "./storage-client-factory";
+import { StorageClientFactory } from "@local/storage";
 import { WorkerInvoker } from "@mcma/worker-invoker";
 
 export interface WorkerContext {

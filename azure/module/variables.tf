@@ -35,6 +35,11 @@ variable "use_flex_consumption_plan" {
   default     = true
 }
 
+variable "use_flex_consumption_plan_always_ready" {
+  type        = bool
+  description = "Enable use of always ready instance for worker function to improve performance"
+  default     = false
+}
 
 variable "function_elastic_instance_minimum" {
   type        = number

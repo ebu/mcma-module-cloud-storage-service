@@ -50,6 +50,17 @@ resource "aws_s3_bucket_policy" "public" {
 }
 
 ########################################
+# Private Archive S3 Bucket
+########################################
+data "aws_caller_identity" "current" {}
+
+resource "aws_s3_bucket" "archive" {
+  bucket = "${var.prefix}-archive-${var.aws_region}"
+
+  force_destroy = true
+}
+
+########################################
 # Private Source S3 Bucket
 ########################################
 resource "aws_s3_bucket" "private" {
@@ -139,6 +150,7 @@ resource "aws_iam_user_policy" "bucket_access" {
           "s3:ListBucket",
         ]
         Resource = [
+          "arn:aws:s3:::${aws_s3_bucket.archive.id}",
           "arn:aws:s3:::${aws_s3_bucket.private_ext.id}",
           "arn:aws:s3:::${aws_s3_bucket.private.id}",
           "arn:aws:s3:::${aws_s3_bucket.target.id}",
@@ -151,8 +163,10 @@ resource "aws_iam_user_policy" "bucket_access" {
           "s3:GetObject",
           "s3:PutObject",
           "s3:DeleteObject",
+          "s3:RestoreObject",
         ]
         Resource = [
+          "arn:aws:s3:::${aws_s3_bucket.archive.id}/*",
           "arn:aws:s3:::${aws_s3_bucket.private_ext.id}/*",
           "arn:aws:s3:::${aws_s3_bucket.private.id}/*",
           "arn:aws:s3:::${aws_s3_bucket.target.id}/*",

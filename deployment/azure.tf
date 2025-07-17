@@ -172,7 +172,7 @@ resource "azurerm_application_insights" "app_insights" {
 #########################
 
 module "service_registry_azure" {
-  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=v1.1.0"
+  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=v1.2.0"
 
   prefix = "${var.prefix}-sr"
 
@@ -207,11 +207,12 @@ module "job_processor_azure" {
     mcma = mcma.azure
   }
 
-  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=v1.1.0"
+  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=v1.2.0"
 
   prefix = "${var.prefix}-jp"
 
-  use_flex_consumption_plan = true
+  use_flex_consumption_plan              = true
+  use_flex_consumption_plan_always_ready = true
 
   resource_group    = azurerm_resource_group.resource_group
   storage_account   = azurerm_storage_account.storage_account
@@ -240,7 +241,8 @@ module "cloud_storage_service_azure" {
 
   prefix = "${var.prefix}-css"
 
-  use_flex_consumption_plan = true
+  use_flex_consumption_plan              = true
+  use_flex_consumption_plan_always_ready = true
 
   resource_group    = azurerm_resource_group.resource_group
   storage_account   = azurerm_storage_account.storage_account
@@ -256,6 +258,12 @@ module "cloud_storage_service_azure" {
   ]
 
   aws_s3_buckets = [
+    {
+      bucket     = aws_s3_bucket.archive.id
+      region     = aws_s3_bucket.archive.region
+      access_key = aws_iam_access_key.bucket_access.id
+      secret_key = aws_iam_access_key.bucket_access.secret
+    },
     {
       bucket     = aws_s3_bucket.private.id
       region     = aws_s3_bucket.private.region

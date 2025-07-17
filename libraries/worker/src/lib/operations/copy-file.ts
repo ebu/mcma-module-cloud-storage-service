@@ -2,8 +2,9 @@ import { JobStatus, Locator, ProblemDetail, StorageJob, Utils } from "@mcma/core
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
-import { FileCopier, SourceFile, DestinationFile, WorkerContext } from "../index";
-import { logError, saveFileCopierState } from "./utils";
+import { SourceFile, DestinationFile, FileCopier, logError, saveFileCopierState } from "@local/storage";
+
+import { WorkerContext } from "../index";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 

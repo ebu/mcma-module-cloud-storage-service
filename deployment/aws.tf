@@ -42,7 +42,7 @@ resource "aws_cloudwatch_log_group" "main" {
 #########################
 
 module "service_registry_aws" {
-  source = "github.com/ebu/mcma-module-service-registry//aws/module?ref=v1.1.0"
+  source = "github.com/ebu/mcma-module-service-registry//aws/module?ref=v1.2.0"
 
   prefix = "${var.prefix}-service-registry"
 
@@ -71,7 +71,7 @@ module "job_processor_aws" {
     mcma = mcma.aws
   }
 
-  source = "github.com/ebu/mcma-module-job-processor//aws/module?ref=v1.1.0"
+  source = "github.com/ebu/mcma-module-job-processor//aws/module?ref=v1.2.0"
 
   prefix = "${var.prefix}-job-processor"
 
@@ -115,14 +115,18 @@ module "cloud_storage_service_aws" {
 
   aws_s3_buckets = [
     {
+      bucket = aws_s3_bucket.archive.id
+      region = aws_s3_bucket.archive.region
+    },
+    {
       bucket = aws_s3_bucket.private.id
       region = aws_s3_bucket.private.region
     },
     {
       bucket     = aws_s3_bucket.private_ext.id
       region     = aws_s3_bucket.private_ext.region
-      access_key = aws_iam_access_key.bucket_access.id
-      secret_key = aws_iam_access_key.bucket_access.secret
+      access_key = nonsensitive(aws_iam_access_key.bucket_access.id)
+      secret_key = nonsensitive(aws_iam_access_key.bucket_access.secret)
     },
     {
       bucket = aws_s3_bucket.target.id
@@ -138,8 +142,8 @@ module "cloud_storage_service_aws" {
     {
       bucket     = aws_s3_bucket.private_eu_west_1.id
       region     = aws_s3_bucket.private_eu_west_1.region
-      access_key = aws_iam_access_key.bucket_access.id
-      secret_key = aws_iam_access_key.bucket_access.secret
+      access_key = nonsensitive(aws_iam_access_key.bucket_access.id)
+      secret_key = nonsensitive(aws_iam_access_key.bucket_access.secret)
     },
   ]
 

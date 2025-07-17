@@ -138,15 +138,22 @@ resource "aws_iam_role_policy" "worker" {
       length(local.buckets_that_require_permissions) > 0 ?
       [
         {
-          Sid      = "AllowS3Listing"
-          Effect   = "Allow"
-          Action   = ["s3:ListBucket"]
+          Sid    = "AllowS3Listing"
+          Effect = "Allow"
+          Action = [
+            "s3:ListBucket"
+          ]
           Resource = local.buckets_that_require_permissions
         },
         {
-          Sid      = "AllowS3Operations"
-          Effect   = "Allow"
-          Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+          Sid    = "AllowS3Operations"
+          Effect = "Allow"
+          Action = [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:DeleteObject",
+            "s3:RestoreObject",
+          ]
           Resource = [for bucket in local.buckets_that_require_permissions : "${bucket}/*"]
         }
       ] : [],

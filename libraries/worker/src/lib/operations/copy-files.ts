@@ -2,8 +2,9 @@ import { JobStatus, Locator, ProblemDetail, StorageJob, Utils } from "@mcma/core
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
-import { FileCopier, SourceFile, DestinationFile, WorkerContext } from "../index";
-import { logError, saveFileCopierState } from "./utils";
+import { FileCopier, SourceFile, DestinationFile, logError, saveFileCopierState } from "@local/storage";
+
+import { WorkerContext } from "../index";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 
@@ -50,7 +51,7 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
 
     const transfers: { sourceFile: Locator, sourceEgressUrl?: string, destinationFile: Locator }[] = jobInput.transfers;
 
-    if(!Array.isArray(transfers) || transfers.length < 1) {
+    if (!Array.isArray(transfers) || transfers.length < 1) {
         await jobAssignmentHelper.fail(new ProblemDetail({
             type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/invalid-input",
             title: "CopyFiles job profile requires property transfers as input with at least 1 element",

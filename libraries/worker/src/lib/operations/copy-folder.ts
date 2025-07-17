@@ -6,9 +6,8 @@ import { getWorkerFunctionId } from "@mcma/worker-invoker";
 import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
 import { BlobStorageLocator, buildBlobStorageUrl, isBlobStorageLocator } from "@mcma/azure-blob-storage";
 
-import { FileCopier, SourceFile, DestinationFile } from "../operations";
+import { FileCopier, SourceFile, DestinationFile, logError, saveFileCopierState} from "@local/storage";
 import { WorkerContext } from "../worker-context";
-import { logError, saveFileCopierState } from "./utils";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 
@@ -119,28 +118,30 @@ async function scanSourceFolder(sourceFolder: SourceFile, destinationFolder: Des
         do {
             const output = await s3Client.send(new ListObjectsV2Command(params));
 
-            for (const content of output.Contents) {
-                const sourceFile: SourceFile = {
-                    locator: new S3Locator({
-                        url: await buildS3Url(sourceFolder.locator.bucket, content.Key, sourceFolder.locator.region)
-                    }),
-                    egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + content.Key.substring(sourceFolder.locator.key.length) : undefined,
-                };
+            if (Array.isArray(output.Contents)) {
+                for (const content of output.Contents) {
+                    const sourceFile: SourceFile = {
+                        locator: new S3Locator({
+                            url: await buildS3Url(sourceFolder.locator.bucket, content.Key, sourceFolder.locator.region)
+                        }),
+                        egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + content.Key.substring(sourceFolder.locator.key.length) : undefined,
+                    };
 
-                let destinationFile: DestinationFile;
-                if (isS3Locator(destinationFolder.locator)) {
-                    destinationFile = {
-                        locator: new S3Locator({ url: await buildS3Url(destinationFolder.locator.bucket, destinationFolder.locator.key + content.Key.substring(sourceFolder.locator.key.length), destinationFolder.locator.region)})
+                    let destinationFile: DestinationFile;
+                    if (isS3Locator(destinationFolder.locator)) {
+                        destinationFile = {
+                            locator: new S3Locator({ url: await buildS3Url(destinationFolder.locator.bucket, destinationFolder.locator.key + content.Key.substring(sourceFolder.locator.key.length), destinationFolder.locator.region) })
+                        }
+                    } else if (isBlobStorageLocator(destinationFolder.locator)) {
+                        destinationFile = {
+                            locator: new BlobStorageLocator({ url: buildBlobStorageUrl(destinationFolder.locator.account, destinationFolder.locator.container, destinationFolder.locator.blobName + content.Key.substring(sourceFolder.locator.key.length)) })
+                        }
+                    } else {
+                        throw new McmaException(`Unsupported target locator type '${destinationFolder.locator["@type"]}'`);
                     }
-                } else if (isBlobStorageLocator(destinationFolder.locator)) {
-                    destinationFile = {
-                        locator: new BlobStorageLocator({ url: buildBlobStorageUrl(destinationFolder.locator.account, destinationFolder.locator.container, destinationFolder.locator.blobName + content.Key.substring(sourceFolder.locator.key.length))})
-                    }
-                } else {
-                    throw new McmaException(`Unsupported target locator type '${destinationFolder.locator["@type"]}'`);
+
+                    files.push({ sourceFile, destinationFile });
                 }
-
-                files.push({ sourceFile, destinationFile });
             }
 
             params.ContinuationToken = output.NextContinuationToken;
