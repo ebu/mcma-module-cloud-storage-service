@@ -80,28 +80,24 @@ export async function restoreFiles(providers: ProviderCollection, jobAssignmentH
     }
 
     for (const file of files) {
-        try {
-            if (!isS3Locator(file)) {
-                throw new McmaException("Should not arrive here");
-            }
-
-            const s3Client = await ctx.storageClientFactory.getS3Client(file.bucket, file.region);
-
-            const restoreObject = await s3Client.send(new RestoreObjectCommand({
-                Bucket: file.bucket,
-                Key: file.key,
-                RestoreRequest: {
-                    Days: durationInDays,
-                    GlacierJobParameters: {
-                        Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
-                    }
-                }
-            }));
-
-            logger.info(restoreObject);
-        } catch (error) {
-            logger.warn(error);
+        if (!isS3Locator(file)) {
+            throw new McmaException("Should not arrive here");
         }
+
+        const s3Client = await ctx.storageClientFactory.getS3Client(file.bucket, file.region);
+
+        const restoreObject = await s3Client.send(new RestoreObjectCommand({
+            Bucket: file.bucket,
+            Key: file.key,
+            RestoreRequest: {
+                Days: durationInDays,
+                GlacierJobParameters: {
+                    Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
+                }
+            }
+        }));
+
+        logger.info(restoreObject);
 
         const table = await providers.dbTableProvider.get(getTableName());
 

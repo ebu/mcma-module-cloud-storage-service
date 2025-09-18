@@ -5,7 +5,7 @@ import { WorkerContext } from "../worker-context";
 import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
 import { getTableName } from "@mcma/data";
 
-import { RestorePriority, buildRestoreWorkItemId, RestoreWorkItem} from "@local/storage";
+import { RestorePriority, buildRestoreWorkItemId, RestoreWorkItem } from "@local/storage";
 
 export async function restoreFolder(providers: ProviderCollection, jobAssignmentHelper: ProcessJobAssignmentHelper<StorageJob>, ctx: WorkerContext) {
     const logger = jobAssignmentHelper.logger;
@@ -63,28 +63,24 @@ export async function restoreFolder(providers: ProviderCollection, jobAssignment
     }
 
     for (const file of files) {
-        try {
-            if (!isS3Locator(file)) {
-                throw new McmaException("Should not arrive here");
-            }
-
-            const s3Client = await ctx.storageClientFactory.getS3Client(file.bucket, file.region);
-
-            const restoreObject = await s3Client.send(new RestoreObjectCommand({
-                Bucket: file.bucket,
-                Key: file.key,
-                RestoreRequest: {
-                    Days: durationInDays,
-                    GlacierJobParameters: {
-                        Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
-                    }
-                }
-            }));
-
-            logger.info(restoreObject);
-        } catch (error) {
-            logger.warn(error);
+        if (!isS3Locator(file)) {
+            throw new McmaException("Should not arrive here");
         }
+
+        const s3Client = await ctx.storageClientFactory.getS3Client(file.bucket, file.region);
+
+        const restoreObject = await s3Client.send(new RestoreObjectCommand({
+            Bucket: file.bucket,
+            Key: file.key,
+            RestoreRequest: {
+                Days: durationInDays,
+                GlacierJobParameters: {
+                    Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
+                }
+            }
+        }));
+
+        logger.info(restoreObject);
 
         const table = await providers.dbTableProvider.get(getTableName());
 
@@ -127,7 +123,7 @@ async function scanSourceFolder(folder: Locator, ctx: WorkerContext) {
                     if (content.StorageClass === StorageClass.GLACIER) {
                         files.push(new S3Locator({
                             url: await buildS3Url(folder.bucket, content.Key, folder.region)
-                        }))
+                        }));
                     }
                 }
             }

@@ -68,22 +68,18 @@ export async function restoreFile(providers: ProviderCollection, jobAssignmentHe
         return;
     }
 
-    try {
-        const restoreObject = await s3Client.send(new RestoreObjectCommand({
-            Bucket: file.bucket,
-            Key: file.key,
-            RestoreRequest: {
-                Days: durationInDays,
-                GlacierJobParameters: {
-                    Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
-                }
+    const restoreObject = await s3Client.send(new RestoreObjectCommand({
+        Bucket: file.bucket,
+        Key: file.key,
+        RestoreRequest: {
+            Days: durationInDays,
+            GlacierJobParameters: {
+                Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
             }
-        }));
+        }
+    }));
 
-        logger.info(restoreObject);
-    } catch (error) {
-        logger.warn(error);
-    }
+    logger.info(restoreObject);
 
     const table = await providers.dbTableProvider.get(getTableName());
 
