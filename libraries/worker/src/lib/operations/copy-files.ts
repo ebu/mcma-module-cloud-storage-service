@@ -3,8 +3,8 @@ import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
 import { FileCopier, SourceFile, DestinationFile, logError, saveFileCopierState } from "@local/storage";
-
-import { WorkerContext } from "../index";
+import { WorkerContext } from "../worker-context";
+import { scanSourceFolderForCopy } from "./utils";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 
@@ -49,7 +49,7 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
         }
     });
 
-    const transfers: { sourceFile: Locator, sourceEgressUrl?: string, destinationFile: Locator }[] = jobInput.transfers;
+    const transfers: { source: Locator, sourceEgressUrl?: string, destination: Locator }[] = jobInput.transfers;
 
     if (!Array.isArray(transfers) || transfers.length < 1) {
         await jobAssignmentHelper.fail(new ProblemDetail({
@@ -61,8 +61,8 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
     }
 
     for (const transfer of transfers) {
-        const sourceLocator = transfer.sourceFile as Locator;
-        const targetLocator = transfer.destinationFile as Locator;
+        const sourceLocator = transfer.source as Locator;
+        const targetLocator = transfer.destination as Locator;
 
         const sourceFile: SourceFile = {
             locator: sourceLocator,
@@ -73,7 +73,19 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
             locator: targetLocator
         };
 
-        fileCopier.addFile(sourceFile, destinationFile);
+        let transfers2: { sourceFile: SourceFile, destinationFile: DestinationFile }[];
+        try {
+            transfers2 = await scanSourceFolderForCopy(sourceFile, destinationFile, ctx);
+        } catch (error) {
+            logger.warn(`Failed to scan source folder for ${sourceFile.locator.url} due to following error. Assuming provided locators are files.`);
+            logger.warn(error);
+            transfers2 = [{ sourceFile, destinationFile }];
+        }
+        logger.info(transfers2);
+
+        for (const transfer2 of transfers2) {
+            fileCopier.addFile(transfer2.sourceFile, transfer2.destinationFile);
+        }
     }
 
     await fileCopier.runUntil(runUntilDate, bailOutDate);

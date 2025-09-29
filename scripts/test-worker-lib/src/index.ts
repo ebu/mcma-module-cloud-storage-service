@@ -6,8 +6,7 @@ import { BlobStorageLocator, buildBlobStorageUrl } from "@mcma/azure-blob-storag
 import { S3Helper } from "./s3-helper";
 import { S3Client } from "@aws-sdk/client-s3";
 import { buildS3Url, S3Locator } from "@mcma/aws-s3";
-import { SourceFile, DestinationFile } from "@local/worker";
-import { FileCopier } from "@local/worker";
+import { FileCopier, SourceFile, DestinationFile } from "@local/storage";
 import * as mime from "mime-types";
 
 const TERRAFORM_OUTPUT = "../../deployment/terraform.output.json";

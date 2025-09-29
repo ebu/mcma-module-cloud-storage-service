@@ -57,7 +57,7 @@ resource "mcma_job_profile" "copy_files" {
 
   input_parameter {
     name = "transfers"
-    type = "{ sourceFile: Locator, sourceEgressUrl?: string, destinationFile: Locator }[]"
+    type = "{ source: Locator, sourceEgressUrl?: string, destination: Locator }[]"
   }
 }
 
@@ -106,7 +106,7 @@ resource "mcma_job_profile" "restore_files" {
   name = "${var.job_profile_prefix}RestoreFiles"
 
   input_parameter {
-    name = "files"
+    name = "paths"
     type = "Locator[]"
   }
 

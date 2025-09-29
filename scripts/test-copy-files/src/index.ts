@@ -87,7 +87,7 @@ async function waitForJobCompletion(job: Job, resourceManager: ResourceManager):
     return job;
 }
 
-async function startJob(resourceManager: ResourceManager, sourceFile: Locator, destinationFile: Locator) {
+async function startJob(resourceManager: ResourceManager, source: Locator, destination: Locator) {
     let [jobProfile] = await resourceManager.query(JobProfile, { name: JOB_PROFILE });
 
     // if not found bail out
@@ -100,8 +100,8 @@ async function startJob(resourceManager: ResourceManager, sourceFile: Locator, d
         jobInput: new JobParameterBag({
             transfers: [
                 {
-                    sourceFile,
-                    destinationFile
+                    source,
+                    destination,
                 }
             ]
         }),
@@ -114,16 +114,16 @@ async function startJob(resourceManager: ResourceManager, sourceFile: Locator, d
     return resourceManager.create(job);
 }
 
-async function testJob(resourceManager: ResourceManager, sourceFile: Locator, destinationFile: Locator) {
+async function testJob(resourceManager: ResourceManager, source: Locator, destination: Locator) {
     let job;
 
-    if (!sourceFile) {
+    if (!source) {
         log("Skipped");
         return;
     }
 
     console.log("Creating job");
-    job = await startJob(resourceManager, sourceFile, destinationFile);
+    job = await startJob(resourceManager, source, destination);
 
     console.log("job.id = " + job.id);
     job = await waitForJobCompletion(job, resourceManager);

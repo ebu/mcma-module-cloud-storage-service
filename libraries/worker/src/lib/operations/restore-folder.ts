@@ -1,11 +1,12 @@
-import { ListObjectsV2Command, ListObjectsV2CommandInput, RestoreObjectCommand, StorageClass, Tier } from "@aws-sdk/client-s3";
+import { RestoreObjectCommand, Tier } from "@aws-sdk/client-s3";
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { Locator, McmaException, ProblemDetail, StorageJob } from "@mcma/core";
 import { WorkerContext } from "../worker-context";
-import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
+import { isS3Locator } from "@mcma/aws-s3";
 import { getTableName } from "@mcma/data";
 
 import { RestorePriority, buildRestoreWorkItemId, RestoreWorkItem } from "@local/storage";
+import { scanSourceFolderForRestore } from "./utils";
 
 export async function restoreFolder(providers: ProviderCollection, jobAssignmentHelper: ProcessJobAssignmentHelper<StorageJob>, ctx: WorkerContext) {
     const logger = jobAssignmentHelper.logger;
@@ -51,7 +52,7 @@ export async function restoreFolder(providers: ProviderCollection, jobAssignment
         durationInDays = 3;
     }
 
-    const files = await scanSourceFolder(folder, ctx);
+    const files = await scanSourceFolderForRestore(folder, ctx);
 
     if (files.length === 0) {
         await jobAssignmentHelper.fail(new ProblemDetail({
@@ -103,36 +104,4 @@ export async function restoreFolder(providers: ProviderCollection, jobAssignment
             await mutex.unlock();
         }
     }
-}
-
-async function scanSourceFolder(folder: Locator, ctx: WorkerContext) {
-    const files: Locator[] = [];
-
-    if (isS3Locator(folder)) {
-        const s3Client = await ctx.storageClientFactory.getS3Client(folder.bucket);
-
-        const params: ListObjectsV2CommandInput = {
-            Bucket: folder.bucket,
-            Prefix: folder.key,
-        };
-        do {
-            const output = await s3Client.send(new ListObjectsV2Command(params));
-
-            if (Array.isArray(output.Contents)) {
-                for (const content of output.Contents) {
-                    if (content.StorageClass === StorageClass.GLACIER) {
-                        files.push(new S3Locator({
-                            url: await buildS3Url(folder.bucket, content.Key, folder.region)
-                        }));
-                    }
-                }
-            }
-
-            params.ContinuationToken = output.NextContinuationToken;
-        } while (params.ContinuationToken);
-    } else {
-        throw new McmaException(`Unsupported source locator type '${folder["@type"]}'`);
-    }
-
-    return files;
 }

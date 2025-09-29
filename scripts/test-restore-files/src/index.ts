@@ -74,7 +74,7 @@ async function waitForJobCompletion(job: Job, resourceManager: ResourceManager):
     return job;
 }
 
-async function startJob(resourceManager: ResourceManager, files: Locator[], priority: RestorePriority) {
+async function startJob(resourceManager: ResourceManager, paths: Locator[], priority: RestorePriority) {
     let [jobProfile] = await resourceManager.query(JobProfile, { name: JOB_PROFILE });
 
     // if not found bail out
@@ -85,7 +85,7 @@ async function startJob(resourceManager: ResourceManager, files: Locator[], prio
     let job = new StorageJob({
         jobProfileId: jobProfile.id,
         jobInput: new JobParameterBag({
-            files,
+            paths,
             priority,
         }),
         tracker: new McmaTracker({
@@ -132,11 +132,11 @@ async function main() {
     const prefix = generatePrefix();
     const awsArchiveFile1 = await uploadFileToBucket(awsArchiveBucket, MEDIA_FILE, prefix + "1-", s3Client);
     const awsArchiveFile2 = await uploadFileToBucket(awsArchiveBucket, MEDIA_FILE, prefix + "2-", s3Client);
-    const files = [awsArchiveFile1, awsArchiveFile2];
+    const paths = [awsArchiveFile1, awsArchiveFile2];
 
-    log(files);
+    log(paths);
 
-    await testJob(awsResourceManager, files, RestorePriority.High);
+    await testJob(awsResourceManager, paths, RestorePriority.High);
 }
 
 main().then(() => log("Done")).catch(e => console.error(e));

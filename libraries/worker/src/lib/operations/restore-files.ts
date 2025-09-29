@@ -7,21 +7,22 @@ import { getTableName } from "@mcma/data";
 import { RestorePriority, RestoreWorkItem, buildRestoreWorkItemId } from "@local/storage";
 
 import { WorkerContext } from "../worker-context";
+import { scanSourceFolderForRestore } from "./utils";
 
 export async function restoreFiles(providers: ProviderCollection, jobAssignmentHelper: ProcessJobAssignmentHelper<StorageJob>, ctx: WorkerContext) {
     const logger = jobAssignmentHelper.logger;
     const jobInput = jobAssignmentHelper.jobInput;
     logger.info(jobInput);
 
-    const files = jobInput.files as Locator[];
+    const paths = jobInput.paths as Locator[];
     let priority = jobInput.priority as RestorePriority;
     let durationInDays = jobInput.durationInDays as number;
 
-    if (!Array.isArray(files) || files.length === 0) {
+    if ((!Array.isArray(paths) || paths.length === 0)) {
         await jobAssignmentHelper.fail(new ProblemDetail({
             type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/missing-input-parameter",
             title: "Missing input parameter",
-            detail: "Missing input parameter 'files'",
+            detail: "Missing input parameter 'paths'",
         }));
         return;
     }
@@ -42,6 +43,11 @@ export async function restoreFiles(providers: ProviderCollection, jobAssignmentH
             detail: `Value '${durationInDays}' is not a non-negative integer value`,
         }));
         return;
+    }
+
+    const files: Locator[] = [];
+    for (const path of paths) {
+        files.push(...await scanSourceFolderForRestore(path, ctx));
     }
 
     for (const file of files) {
