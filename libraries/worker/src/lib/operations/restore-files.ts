@@ -14,15 +14,15 @@ export async function restoreFiles(providers: ProviderCollection, jobAssignmentH
     const jobInput = jobAssignmentHelper.jobInput;
     logger.info(jobInput);
 
-    const paths = jobInput.paths as Locator[];
+    const locators = jobInput.locators as Locator[];
     let priority = jobInput.priority as RestorePriority;
     let durationInDays = jobInput.durationInDays as number;
 
-    if ((!Array.isArray(paths) || paths.length === 0)) {
+    if ((!Array.isArray(locators) || locators.length === 0)) {
         await jobAssignmentHelper.fail(new ProblemDetail({
             type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/missing-input-parameter",
             title: "Missing input parameter",
-            detail: "Missing input parameter 'paths'",
+            detail: "Missing input parameter 'locators'",
         }));
         return;
     }
@@ -46,8 +46,8 @@ export async function restoreFiles(providers: ProviderCollection, jobAssignmentH
     }
 
     const files: Locator[] = [];
-    for (const path of paths) {
-        files.push(...await scanSourceFolderForRestore(path, ctx));
+    for (const locator of locators) {
+        files.push(...await scanSourceFolderForRestore(locator, ctx));
     }
 
     for (const file of files) {
