@@ -4,7 +4,7 @@ import { Locator, ProblemDetail, StorageJob } from "@mcma/core";
 import { isS3Locator } from "@mcma/aws-s3";
 import { getTableName } from "@mcma/data";
 
-import { RestoreWorkItem, buildRestoreWorkItemId, RestorePriority } from "@local/storage";
+import { RestoreWorkItem, buildRestoreWorkItemId, RestorePriority, parseRestoreValue } from "@local/storage";
 
 import { WorkerContext } from "../worker-context";
 
@@ -59,7 +59,7 @@ export async function restoreFile(providers: ProviderCollection, jobAssignmentHe
     }));
     logger.info(headObject);
 
-    if (headObject.StorageClass !== StorageClass.GLACIER) {
+    if (headObject.StorageClass !== StorageClass.GLACIER && headObject.StorageClass !== StorageClass.DEEP_ARCHIVE) {
         await jobAssignmentHelper.fail(new ProblemDetail({
             type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/object-in-unsupported-storage-class",
             title: "Provided object is in unsupported storage class",
@@ -68,18 +68,31 @@ export async function restoreFile(providers: ProviderCollection, jobAssignmentHe
         return;
     }
 
-    const restoreObject = await s3Client.send(new RestoreObjectCommand({
-        Bucket: file.bucket,
-        Key: file.key,
-        RestoreRequest: {
-            Days: durationInDays,
-            GlacierJobParameters: {
-                Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
+    const restore = parseRestoreValue(headObject.Restore);
+    if (restore.get("ongoing-request") === "true") {
+        logger.warn(`Restore request already in progress for ${file.key}. Not making new request`);
+    } else {
+        try {
+            const restoreObject = await s3Client.send(new RestoreObjectCommand({
+                Bucket: file.bucket,
+                Key: file.key,
+                RestoreRequest: {
+                    Days: durationInDays,
+                    GlacierJobParameters: {
+                        Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
+                    }
+                }
+            }));
+
+            logger.info(restoreObject);
+        } catch (error) {
+            if (error.name === "RestoreAlreadyInProgress") {
+                logger.warn(error);
+            } else {
+                throw error;
             }
         }
-    }));
-
-    logger.info(restoreObject);
+    }
 
     const table = await providers.dbTableProvider.get(getTableName());
 

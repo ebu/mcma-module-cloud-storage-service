@@ -80,8 +80,6 @@ export async function scanSourceFolderForCopy(sourceFolder: SourceFile, destinat
     return files;
 }
 
-
-
 export async function scanSourceFolderForRestore(folder: Locator, ctx: WorkerContext) {
     const files: Locator[] = [];
 
@@ -97,7 +95,7 @@ export async function scanSourceFolderForRestore(folder: Locator, ctx: WorkerCon
 
             if (Array.isArray(output.Contents)) {
                 for (const content of output.Contents) {
-                    if (content.StorageClass === StorageClass.GLACIER) {
+                    if ((content.StorageClass === StorageClass.GLACIER || content.StorageClass === StorageClass.DEEP_ARCHIVE) && !content.RestoreStatus?.IsRestoreInProgress) {
                         files.push(new S3Locator({
                             url: await buildS3Url(folder.bucket, content.Key, folder.region)
                         }));

@@ -1,7 +1,7 @@
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { Locator, McmaException, ProblemDetail, StorageJob } from "@mcma/core";
 import { isS3Locator } from "@mcma/aws-s3";
-import { HeadObjectCommand, RestoreObjectCommand, StorageClass, Tier } from "@aws-sdk/client-s3";
+import { RestoreObjectCommand, Tier } from "@aws-sdk/client-s3";
 import { getTableName } from "@mcma/data";
 
 import { RestorePriority, RestoreWorkItem, buildRestoreWorkItemId } from "@local/storage";
@@ -50,33 +50,6 @@ export async function restoreFiles(providers: ProviderCollection, jobAssignmentH
         files.push(...await scanSourceFolderForRestore(locator, ctx));
     }
 
-    for (const file of files) {
-        if (!isS3Locator(file)) {
-            await jobAssignmentHelper.fail(new ProblemDetail({
-                type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/locator-type-not-supported",
-                title: "Provided input locator type is not supported",
-                detail: `Locator type '${file["@type"]}' is not supported`,
-            }));
-            return;
-        }
-
-        const s3Client = await ctx.storageClientFactory.getS3Client(file.bucket, file.region);
-        const headObject = await s3Client.send(new HeadObjectCommand({
-            Bucket: file.bucket,
-            Key: file.key,
-        }));
-        logger.info(headObject);
-
-        if (headObject.StorageClass !== StorageClass.GLACIER) {
-            await jobAssignmentHelper.fail(new ProblemDetail({
-                type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/object-in-unsupported-storage-class",
-                title: "Provided object is in unsupported storage class",
-                detail: `Object ${file.key} in bucket ${file.bucket} is in storage class ${headObject.StorageClass}.`,
-            }));
-            return;
-        }
-    }
-
     if (!priority) {
         priority = RestorePriority.Low;
     }
@@ -92,18 +65,26 @@ export async function restoreFiles(providers: ProviderCollection, jobAssignmentH
 
         const s3Client = await ctx.storageClientFactory.getS3Client(file.bucket, file.region);
 
-        const restoreObject = await s3Client.send(new RestoreObjectCommand({
-            Bucket: file.bucket,
-            Key: file.key,
-            RestoreRequest: {
-                Days: durationInDays,
-                GlacierJobParameters: {
-                    Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
+        try {
+            const restoreObject = await s3Client.send(new RestoreObjectCommand({
+                Bucket: file.bucket,
+                Key: file.key,
+                RestoreRequest: {
+                    Days: durationInDays,
+                    GlacierJobParameters: {
+                        Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
+                    }
                 }
-            }
-        }));
+            }));
 
-        logger.info(restoreObject);
+            logger.info(restoreObject);
+        } catch (error) {
+            if (error.name === "RestoreAlreadyInProgress") {
+                logger.warn(error);
+            } else {
+                throw error;
+            }
+        }
 
         const table = await providers.dbTableProvider.get(getTableName());
 

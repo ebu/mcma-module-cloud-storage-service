@@ -70,18 +70,25 @@ export async function restoreFolder(providers: ProviderCollection, jobAssignment
 
         const s3Client = await ctx.storageClientFactory.getS3Client(file.bucket, file.region);
 
-        const restoreObject = await s3Client.send(new RestoreObjectCommand({
-            Bucket: file.bucket,
-            Key: file.key,
-            RestoreRequest: {
-                Days: durationInDays,
-                GlacierJobParameters: {
-                    Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
+        try {
+            const restoreObject = await s3Client.send(new RestoreObjectCommand({
+                Bucket: file.bucket,
+                Key: file.key,
+                RestoreRequest: {
+                    Days: durationInDays,
+                    GlacierJobParameters: {
+                        Tier: priority === RestorePriority.High ? Tier.Expedited : priority === RestorePriority.Medium ? Tier.Standard : Tier.Bulk
+                    }
                 }
+            }));
+            logger.info(restoreObject);
+        } catch (error) {
+            if (error.name === "RestoreAlreadyInProgress") {
+                logger.warn(error);
+            } else {
+                throw error;
             }
-        }));
-
-        logger.info(restoreObject);
+        }
 
         const table = await providers.dbTableProvider.get(getTableName());
 
