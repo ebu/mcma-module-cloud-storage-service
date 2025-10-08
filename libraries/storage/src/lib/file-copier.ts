@@ -141,7 +141,7 @@ export class FileCopier {
 
             this.logger?.debug("FileCopier.runUntil() - Wait until timeout, finished work, or an error");
 
-            while (runUntilDate > new Date() && (this.activeWorkItems.length > 0 || this.queuedWorkItems.length > 0) && !this.error) {
+            while (runUntilDate > new Date() && (this.activeWorkItems.length > 0 || this.queuedWorkItems.length > 0 || this.delayedWorkItems.length) && !this.error) {
                 await Utils.sleep(1000);
                 if (this.config.progressUpdate) {
                     await this.config.progressUpdate(this.filesTotal, this.filesCopied, this.bytesTotal, this.bytesCopied);
