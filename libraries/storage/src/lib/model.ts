@@ -8,7 +8,7 @@ export interface SourceFile {
 
 export interface DestinationFile {
     locator: Locator;
-    awsStorageClass?: StorageClass;
+    storageClass?: StorageClass;
 }
 
 export enum WorkType {

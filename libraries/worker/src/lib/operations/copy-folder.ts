@@ -5,6 +5,7 @@ import { getWorkerFunctionId } from "@mcma/worker-invoker";
 import { FileCopier, SourceFile, DestinationFile, logError, saveFileCopierState} from "@local/storage";
 import { WorkerContext } from "../worker-context";
 import { scanSourceFolderForCopy } from "./utils";
+import { StorageClass } from "@aws-sdk/client-s3";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 
@@ -51,13 +52,15 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
 
     const sourceLocator = jobInput.sourceFolder as Locator;
     const targetLocator = jobInput.destinationFolder as Locator;
+    const storageClass = jobInput.destinationStorageClass as StorageClass;
 
     const sourceFile: SourceFile = {
         locator: sourceLocator,
         egressUrl: jobInput.sourceEgressUrl,
     };
     const destinationFile: DestinationFile = {
-        locator: targetLocator
+        locator: targetLocator,
+        storageClass,
     };
 
     const files = await scanSourceFolderForCopy(sourceFile, destinationFile, ctx);

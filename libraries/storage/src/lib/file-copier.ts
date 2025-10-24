@@ -444,7 +444,7 @@ export class FileCopier {
                             Key: workItem.destinationFile.locator.key,
                             CopySource: encodeURIComponent(workItem.sourceFile.locator.bucket + "/" + workItem.sourceFile.locator.key),
                             ContentType: workItem.contentType,
-                            StorageClass: workItem.destinationFile.awsStorageClass,
+                            StorageClass: workItem.destinationFile.storageClass,
                         }));
                     } else {
                         const headers = Object.assign({}, this.config.axiosConfig?.headers, workItem.sourceHeaders);
@@ -459,7 +459,7 @@ export class FileCopier {
                             Key: workItem.destinationFile.locator.key,
                             Body: response.data,
                             ContentType: workItem.contentType,
-                            StorageClass: workItem.destinationFile.awsStorageClass,
+                            StorageClass: workItem.destinationFile.storageClass,
                         }));
                     }
                 } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
@@ -508,7 +508,7 @@ export class FileCopier {
                         Bucket: workItem.destinationFile.locator.bucket,
                         Key: workItem.destinationFile.locator.key,
                         ContentType: workItem.contentType,
-                        StorageClass: workItem.destinationFile.awsStorageClass,
+                        StorageClass: workItem.destinationFile.storageClass,
                     }));
                     uploadId = commandOutput.UploadId;
                 }

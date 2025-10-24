@@ -1,3 +1,4 @@
+import { StorageClass } from "@aws-sdk/client-s3";
 import { JobStatus, Locator, ProblemDetail, StorageJob, Utils } from "@mcma/core";
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
@@ -49,7 +50,7 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
         }
     });
 
-    const transfers: { source: Locator, sourceEgressUrl?: string, destination: Locator }[] = jobInput.transfers;
+    const transfers: { source: Locator, sourceEgressUrl?: string, destination: Locator, destinationStorageClass: StorageClass }[] = jobInput.transfers;
 
     if (!Array.isArray(transfers) || transfers.length < 1) {
         await jobAssignmentHelper.fail(new ProblemDetail({
@@ -63,6 +64,7 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
     for (const transfer of transfers) {
         const sourceLocator = transfer.source as Locator;
         const targetLocator = transfer.destination as Locator;
+        const storageClass = transfer.destinationStorageClass;
 
         const sourceFile: SourceFile = {
             locator: sourceLocator,
@@ -70,7 +72,8 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
         };
 
         const destinationFile: DestinationFile = {
-            locator: targetLocator
+            locator: targetLocator,
+            storageClass,
         };
 
         let transfers2: { sourceFile: SourceFile, destinationFile: DestinationFile }[];

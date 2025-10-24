@@ -1,3 +1,4 @@
+import { StorageClass } from "@aws-sdk/client-s3";
 import { JobStatus, Locator, ProblemDetail, StorageJob, Utils } from "@mcma/core";
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
@@ -51,6 +52,7 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
 
     const sourceLocator = jobInput.sourceFile as Locator;
     const targetLocator = jobInput.destinationFile as Locator;
+    const storageClass = jobInput.destinationStorageClass as StorageClass;
 
     const sourceFile: SourceFile = {
         locator: sourceLocator,
@@ -58,7 +60,8 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
     };
 
     const destinationFile: DestinationFile = {
-        locator: targetLocator
+        locator: targetLocator,
+        storageClass,
     };
 
     fileCopier.addFile(sourceFile, destinationFile);

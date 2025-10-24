@@ -30,7 +30,8 @@ export async function scanSourceFolderForCopy(sourceFolder: SourceFile, destinat
                     let destinationFile: DestinationFile;
                     if (isS3Locator(destinationFolder.locator)) {
                         destinationFile = {
-                            locator: new S3Locator({ url: await buildS3Url(destinationFolder.locator.bucket, destinationFolder.locator.key + content.Key.substring(sourceFolder.locator.key.length), destinationFolder.locator.region) })
+                            locator: new S3Locator({ url: await buildS3Url(destinationFolder.locator.bucket, destinationFolder.locator.key + content.Key.substring(sourceFolder.locator.key.length), destinationFolder.locator.region) }),
+                            storageClass: destinationFolder.storageClass,
                         }
                     } else if (isBlobStorageLocator(destinationFolder.locator)) {
                         destinationFile = {
@@ -61,7 +62,8 @@ export async function scanSourceFolderForCopy(sourceFolder: SourceFile, destinat
             let destinationFile: DestinationFile;
             if (isS3Locator(destinationFolder.locator)) {
                 destinationFile = {
-                    locator: new S3Locator({ url: await buildS3Url(destinationFolder.locator.bucket, destinationFolder.locator.key + blob.name.substring(sourceFolder.locator.blobName.length), destinationFolder.locator.region)})
+                    locator: new S3Locator({ url: await buildS3Url(destinationFolder.locator.bucket, destinationFolder.locator.key + blob.name.substring(sourceFolder.locator.blobName.length), destinationFolder.locator.region)}),
+                    storageClass: destinationFolder.storageClass,
                 }
             } else if (isBlobStorageLocator(destinationFolder.locator)) {
                 destinationFile = {
