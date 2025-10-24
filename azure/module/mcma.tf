@@ -54,6 +54,12 @@ resource "mcma_job_profile" "copy_file" {
     name = "destinationFile"
     type = "Locator"
   }
+
+  input_parameter {
+    name     = "destinationStorageClass"
+    type     = "string"
+    optional = true
+  }
 }
 
 resource "mcma_job_profile" "copy_files" {
@@ -61,7 +67,7 @@ resource "mcma_job_profile" "copy_files" {
 
   input_parameter {
     name = "transfers"
-    type = "{ sourceFile: Locator, sourceEgressUrl?: string, destinationFile: Locator }[]"
+    type = "{ source: Locator, sourceEgressUrl?: string, destination: Locator, destinationStorageClass?: string }[]"
   }
 }
 
@@ -82,6 +88,12 @@ resource "mcma_job_profile" "copy_folder" {
   input_parameter {
     name = "destinationFolder"
     type = "Locator"
+  }
+
+  input_parameter {
+    name     = "destinationStorageClass"
+    type     = "string"
+    optional = true
   }
 }
 
