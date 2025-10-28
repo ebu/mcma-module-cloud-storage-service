@@ -1,5 +1,5 @@
 import { DocumentDatabaseTable } from "@mcma/data";
-import { Logger, McmaException } from "@mcma/core";
+import { Logger, McmaException, Utils } from "@mcma/core";
 import { FileCopierState } from "./file-copier";
 import { WorkItem } from "./model";
 
@@ -12,6 +12,29 @@ function computePrefixDatabaseId(jobAssignmentDatabaseId: string) {
 
 function computeIndexDatabaseId(jobAssignmentDatabaseId: string) {
     return computePrefixDatabaseId(jobAssignmentDatabaseId) + "index";
+}
+
+async function withRetry<T>(func: () => Promise<T>): Promise<T> {
+    let doRetry = false;
+    let attempt = 0;
+    let result: T;
+    do {
+        doRetry = false;
+        attempt++;
+
+        try {
+            result = await func();
+        } catch (error) {
+            if (attempt > 2) {
+                throw error;
+            }
+            doRetry = true;
+
+            await Utils.sleep(3000);
+        }
+    } while (doRetry);
+
+    return result;
 }
 
 export async function saveFileCopierState(state: FileCopierState, jobAssignmentDatabaseId: string, table: DocumentDatabaseTable): Promise<void> {
@@ -31,14 +54,14 @@ export async function saveFileCopierState(state: FileCopierState, jobAssignmentD
         }
         item.workItems = state.workItems.slice(i, i + STATE_DATABASE_ENTRY_SIZE);
 
-        await table.put(databaseId, item);
+        await withRetry(async () => await table.put(databaseId, item));
 
         databaseIds.push(databaseId);
     }
 
     const indexDatabaseId = computeIndexDatabaseId(jobAssignmentDatabaseId);
 
-    await table.put(indexDatabaseId, { databaseIds: databaseIds });
+    await withRetry(async () => await table.put(indexDatabaseId, { databaseIds: databaseIds }));
 }
 
 export async function loadFileCopierState(jobAssignmentDatabaseId: string, table: DocumentDatabaseTable): Promise<FileCopierState> {
@@ -50,7 +73,7 @@ export async function loadFileCopierState(jobAssignmentDatabaseId: string, table
 
     const indexDatabaseId = computeIndexDatabaseId(jobAssignmentDatabaseId);
 
-    const index = await table.get<{ databaseIds: string[] }>(indexDatabaseId);
+    const index = await withRetry(async () => await table.get<{ databaseIds: string[] }>(indexDatabaseId));
 
     for (const fileCopierStateDatabaseId of index.databaseIds) {
         const item = await table.get<FileCopierState>(fileCopierStateDatabaseId);
@@ -86,10 +109,10 @@ export async function deleteFileCopierState(jobAssignmentDatabaseId: string, tab
 
     try {
         const index = await table.get<{ databaseIds: string[] }>(indexDatabaseId);
-        await table.delete(indexDatabaseId);
+        await withRetry(async () => await table.delete(indexDatabaseId));
 
         for (const fileCopierStateDatabaseId of index.databaseIds) {
-            await table.delete(fileCopierStateDatabaseId);
+            await withRetry(async () => await table.delete(fileCopierStateDatabaseId));
         }
     } catch {}
 }
