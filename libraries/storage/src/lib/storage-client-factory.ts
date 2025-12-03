@@ -30,6 +30,8 @@ interface StorageClientConfig {
 
 export class StorageClientFactory {
     private storageClientConfig: StorageClientConfig;
+    private readonly s3ClientsMap = new Map<string, S3Client>();
+    private readonly containerClientsMap = new Map<string, ContainerClient>();
 
     constructor(private config: StorageClientFactoryConfig) {
         if (!config.secretId) {
@@ -52,6 +54,11 @@ export class StorageClientFactory {
     }
 
     async getS3Client(bucket: string, region?: string): Promise<S3Client> {
+        const key = `${bucket}-${region}`;
+        if (this.s3ClientsMap.has(key)) {
+            return this.s3ClientsMap.get(key);
+        }
+
         await this.init();
 
         const bucketConfig = this.storageClientConfig.aws[bucket];
@@ -72,10 +79,17 @@ export class StorageClientFactory {
             forcePathStyle = true;
         }
 
-        return this.config.buildS3Client({ credentials, region: region ?? bucketConfig.region, endpoint, forcePathStyle });
+        const s3Client = this.config.buildS3Client({ credentials, region: region ?? bucketConfig.region, endpoint, forcePathStyle });
+        this.s3ClientsMap.set(key, s3Client);
+        return s3Client;
     }
 
     async getContainerClient(account: string, container: string): Promise<ContainerClient> {
+        const key = `${container}-${account}`;
+        if (this.containerClientsMap.has(key)) {
+            return this.containerClientsMap.get(key);
+        }
+
         await this.init();
 
         const accountConfig = this.storageClientConfig.azure[account];
@@ -83,6 +97,8 @@ export class StorageClientFactory {
             throw new McmaException(`Storage client config not found for Azure storage account '${account}'`);
         }
 
-        return new ContainerClient(accountConfig.connectionString, container);
+        const containerClient = new ContainerClient(accountConfig.connectionString, container);
+        this.containerClientsMap.set(key, containerClient);
+        return containerClient;
     }
 }
