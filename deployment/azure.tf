@@ -212,7 +212,7 @@ module "job_processor_azure" {
   prefix = "${var.prefix}-jp"
 
   use_flex_consumption_plan              = true
-  use_flex_consumption_plan_always_ready = true
+  use_flex_consumption_plan_always_ready = false
 
   resource_group    = azurerm_resource_group.resource_group
   storage_account   = azurerm_storage_account.storage_account
@@ -242,7 +242,7 @@ module "cloud_storage_service_azure" {
   prefix = "${var.prefix}-css"
 
   use_flex_consumption_plan              = true
-  use_flex_consumption_plan_always_ready = true
+  use_flex_consumption_plan_always_ready = false
 
   resource_group    = azurerm_resource_group.resource_group
   storage_account   = azurerm_storage_account.storage_account
