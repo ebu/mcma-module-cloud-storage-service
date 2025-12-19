@@ -6,8 +6,9 @@
     "license": "Apache-2.0",
     "main": "src/index.js",
     "dependencies": {
-        "@azure/keyvault-secrets": "^4.9.0",
         "@azure/identity": "^4.6.0",
+        "@azure/keyvault-secrets": "^4.9.0",
+        "@azure/storage-blob": "^12.26.0",
         "@mcma/api": "1.0.2",
         "@mcma/azure-cosmos-db": "1.0.2",
         "@mcma/azure-functions-api": "1.0.2",

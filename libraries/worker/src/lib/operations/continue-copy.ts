@@ -3,7 +3,7 @@ import { getTableName } from "@mcma/data";
 import { ProcessJobAssignmentHelper, ProviderCollection, WorkerRequest } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
-import { FileCopier, deleteFileCopierState, loadFileCopierState, logError, saveFileCopierState } from "@local/storage";
+import { FileCopier, logError } from "@local/storage";
 
 import { WorkerContext } from "../worker-context";
 
@@ -57,7 +57,7 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
         });
 
         {
-            const state = await loadFileCopierState(jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
+            const state = await ctx.loadFileCopierState(jobAssignmentDatabaseId);
 
             if (!state.workItems.length) {
                 logger.error("Failed to retrieve remaining work items from database. Failing Job");
@@ -100,8 +100,7 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             if (workToDo) {
                 logger.info(`${state.workItems.length} work items remaining. Storing FileCopierState`);
 
-                await deleteFileCopierState(jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
-                await saveFileCopierState(state, jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
+                await ctx.saveFileCopierState(jobAssignmentDatabaseId, state);
 
                 if (!continueRunning) {
                     logger.info(`Invoking worker again`);
@@ -118,7 +117,7 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
         } while (continueRunning && workToDo);
 
         // state no longer needed. finished copying.
-        await deleteFileCopierState(jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
+        await ctx.deleteFileCopierState(jobAssignmentDatabaseId);
 
         await Utils.sleep(1000);
         logger.info("Copy was a success, marking job as Completed");

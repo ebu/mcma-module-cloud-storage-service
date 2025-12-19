@@ -8,7 +8,8 @@ import {
     S3Client,
     UploadPartCommand, UploadPartCommandInput, UploadPartCommandOutput,
     UploadPartCopyCommand, UploadPartCopyCommandInput, UploadPartCopyCommandOutput,
-    CompletedPart, CopyObjectCommand, DeleteObjectCommand
+    CompletedPart, CopyObjectCommand, DeleteObjectCommand,
+    PutObjectCommand
 } from "@aws-sdk/client-s3";
 
 interface MultiPartUploadRequest {
@@ -80,89 +81,98 @@ export class S3Helper {
     }
 
     async upload(filename: string, targetBucket: string, targetKey: string) {
+        const stats = fs.statSync(filename);
+        const objectSize = stats.size;
+
         const s3Client = await this.getS3Client(targetBucket);
 
-        const createResponse = await s3Client.send(new CreateMultipartUploadCommand({
-            Bucket: targetBucket,
-            Key: targetKey,
-            ContentType: mime.lookup(targetKey) || "application/octet-stream"
-        }));
+        if (objectSize < 2 * this.multipartSize) {
+            return await s3Client.send(new PutObjectCommand({
+                Bucket: targetBucket,
+                Key: targetKey,
+                Body: fs.createReadStream(filename),
+                ContentType: mime.lookup(targetKey) || "application/octet-stream",
+            }));
+        } else {
+            const createResponse = await s3Client.send(new CreateMultipartUploadCommand({
+                Bucket: targetBucket,
+                Key: targetKey,
+                ContentType: mime.lookup(targetKey) || "application/octet-stream",
+            }));
 
-        const uploadId = createResponse.UploadId;
+            const uploadId = createResponse.UploadId;
 
-        try {
-            const stats = fs.statSync(filename);
+            try {
+                const preparedRequests: MultiPartUploadRequest[] = [];
+                const uploadingRequests: MultiPartUploadRequest[] = [];
+                const finishedRequests: MultiPartUploadRequest[] = [];
+                const errorRequests: MultiPartUploadRequest[] = [];
 
-            const objectSize = stats.size;
-            const preparedRequests: MultiPartUploadRequest[] = [];
-            const uploadingRequests: MultiPartUploadRequest[] = [];
-            const finishedRequests: MultiPartUploadRequest[] = [];
-            const errorRequests: MultiPartUploadRequest[] = [];
+                let bytePosition = 0;
+                for (let i = 1; bytePosition < objectSize; i++) {
+                    const start = bytePosition;
+                    const end = (bytePosition + this.multipartSize - 1 >= objectSize ? objectSize - 1 : bytePosition + this.multipartSize - 1);
+                    const length = end - start + 1;
 
-            let bytePosition = 0;
-            for (let i = 1; bytePosition < objectSize; i++) {
-                const start = bytePosition;
-                const end = (bytePosition + this.multipartSize - 1 >= objectSize ? objectSize - 1 : bytePosition + this.multipartSize - 1);
-                const length = end - start + 1;
+                    preparedRequests.push({
+                        input: {
+                            Bucket: targetBucket,
+                            Key: targetKey,
+                            Body: fs.createReadStream(filename, {
+                                start,
+                                end,
+                            }),
+                            ContentLength: length,
+                            PartNumber: i,
+                            UploadId: uploadId,
+                        }
+                    });
 
-                preparedRequests.push({
-                    input: {
-                        Bucket: targetBucket,
-                        Key: targetKey,
-                        Body: fs.createReadStream(filename, {
-                            start,
-                            end,
-                        }),
-                        ContentLength: length,
-                        PartNumber: i,
-                        UploadId: uploadId,
+                    bytePosition += this.multipartSize;
+                }
+
+                while (preparedRequests.length > 0) {
+                    if (uploadingRequests.length >= this.maxConcurrentTransfers) {
+                        await processRequest(uploadingRequests, finishedRequests, errorRequests);
                     }
-                });
 
-                bytePosition += this.multipartSize;
-            }
+                    const request = preparedRequests.shift();
+                    request.promise = s3Client.send(new UploadPartCommand(request.input));
+                    uploadingRequests.push(request);
+                }
 
-            while (preparedRequests.length > 0) {
-                if (uploadingRequests.length >= this.maxConcurrentTransfers) {
+                while (uploadingRequests.length > 0) {
                     await processRequest(uploadingRequests, finishedRequests, errorRequests);
                 }
 
-                const request = preparedRequests.shift();
-                request.promise = s3Client.send(new UploadPartCommand(request.input));
-                uploadingRequests.push(request);
-            }
-
-            while (uploadingRequests.length > 0) {
-                await processRequest(uploadingRequests, finishedRequests, errorRequests);
-            }
-
-            if (errorRequests.length > 0) {
-                throw new Error("Transfer failed with " + errorRequests.length + " errors");
-            }
-
-            const parts: CompletedPart[] = finishedRequests.map(request => {
-                return {
-                    ETag: request.output.ETag,
-                    PartNumber: request.input.PartNumber,
-                };
-            });
-            parts.sort((a, b) => a.PartNumber - b.PartNumber);
-
-            return s3Client.send(new CompleteMultipartUploadCommand({
-                Bucket: targetBucket,
-                Key: targetKey,
-                UploadId: uploadId,
-                MultipartUpload: {
-                    Parts: parts,
+                if (errorRequests.length > 0) {
+                    throw new Error("Transfer failed with " + errorRequests.length + " errors");
                 }
-            }));
-        } catch (error) {
-            await s3Client.send(new AbortMultipartUploadCommand({
-                Bucket: targetBucket,
-                Key: targetKey,
-                UploadId: uploadId,
-            }));
-            throw error;
+
+                const parts: CompletedPart[] = finishedRequests.map(request => {
+                    return {
+                        ETag: request.output.ETag,
+                        PartNumber: request.input.PartNumber,
+                    };
+                });
+                parts.sort((a, b) => a.PartNumber - b.PartNumber);
+
+                return await s3Client.send(new CompleteMultipartUploadCommand({
+                    Bucket: targetBucket,
+                    Key: targetKey,
+                    UploadId: uploadId,
+                    MultipartUpload: {
+                        Parts: parts,
+                    }
+                }));
+            } catch (error) {
+                await s3Client.send(new AbortMultipartUploadCommand({
+                    Bucket: targetBucket,
+                    Key: targetKey,
+                    UploadId: uploadId,
+                }));
+                throw error;
+            }
         }
     }
 
@@ -173,7 +183,7 @@ export class S3Helper {
         const s3Client = await this.getS3Client(targetBucket);
 
         if (objectSize < 2 * this.multipartSize) {
-            return s3Client.send(new CopyObjectCommand({
+            return await s3Client.send(new CopyObjectCommand({
                 Bucket: targetBucket,
                 Key: targetKey,
                 CopySource: `/${sourceBucket}/${sourceKey}`,
@@ -239,7 +249,7 @@ export class S3Helper {
                 });
                 parts.sort((a, b) => a.PartNumber - b.PartNumber);
 
-                return s3Client.send(new CompleteMultipartUploadCommand({
+                return await s3Client.send(new CompleteMultipartUploadCommand({
                     Bucket: targetBucket,
                     Key: targetKey,
                     UploadId: uploadId,

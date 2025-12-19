@@ -173,3 +173,34 @@ variable "worker_function_timeout" {
   description = "Set the timeout for the worker function. Valid values depend on chosen app service plan"
   default     = null
 }
+
+########################
+# Temporary storage
+########################
+
+variable "temp_storage_account" {
+  type = object({
+    id                        = string
+    name                      = string
+    primary_access_key        = string
+    primary_connection_string = string
+    primary_blob_endpoint     = string
+  })
+  default     = null
+  description = "Storage account for temp_container. If null default storage account is assumed"
+}
+
+variable "temp_container" {
+  type = object({
+    id   = string
+    name = string
+  })
+  description = "Optional container for service to write temp files"
+  default     = null
+}
+
+variable "temp_container_prefix" {
+  type        = string
+  description = "Set an alternative prefix for temp files"
+  default     = "cloud-storage-service/"
+}

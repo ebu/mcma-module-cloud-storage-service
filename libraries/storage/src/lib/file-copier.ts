@@ -1,4 +1,4 @@
-import { AxiosRequestConfig, default as axios } from "axios";
+import { AxiosError, AxiosRequestConfig, default as axios } from "axios";
 import { randomBytes } from "crypto";
 import {
     CompleteMultipartUploadCommand,
@@ -277,7 +277,6 @@ export class FileCopier {
         const promise = new Promise<any>(async (resolve, reject) => {
             try {
                 let sourceUrl: string = undefined;
-                let sourceHeaders: { [key: string]: string } = undefined;
                 let contentLength: number = undefined;
                 let contentType: string = undefined;
                 let lastModified: Date = undefined;
@@ -287,7 +286,6 @@ export class FileCopier {
                     sourceUrl = workItem.sourceFile.egressUrl;
                 } else {
                     if (isS3Locator(workItem.sourceFile.locator) && isS3Locator(workItem.destinationFile.locator)) {
-                        this.logger?.debug("Source AND Target are S3");
                         // if both source and target are S3 try to see if we can access the source with target credentials so we can do s3 copy
                         const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket, workItem.sourceFile.locator.region);
 
@@ -307,7 +305,7 @@ export class FileCopier {
                     }
 
                     // for all other cases we'll need a URL as a source
-                    if (!contentLength) {
+                    if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
                         // first check if locator URL is publicly readable.
                         try {
                             const headResponse = await axios.head(workItem.sourceFile.locator.url, this.config.axiosConfig);
@@ -318,7 +316,7 @@ export class FileCopier {
                         } catch {}
                     }
 
-                    if (!contentLength) {
+                    if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
                         // if not we'll create a signed URL
                         if (isS3Locator(workItem.sourceFile.locator)) {
                             this.logger?.debug("Creating Signed URL for source S3 Client ");
@@ -329,6 +327,15 @@ export class FileCopier {
                                 Key: workItem.sourceFile.locator.key,
                             });
                             sourceUrl = await getSignedUrl(sourceS3Client, command, { expiresIn: 12 * 3600 });
+
+                            const commandOutput = await sourceS3Client.send(new HeadObjectCommand({
+                                Bucket: workItem.sourceFile.locator.bucket,
+                                Key: workItem.sourceFile.locator.key,
+                            }));
+
+                            contentLength = commandOutput.ContentLength;
+                            contentType = commandOutput.ContentType;
+                            lastModified = commandOutput.LastModified;
                         } else if (isBlobStorageLocator(workItem.sourceFile.locator)) {
                             const sourceContainerClient = await this.config.getContainerClient(workItem.sourceFile.locator.account, workItem.sourceFile.locator.container);
                             const sourceBlobClient = sourceContainerClient.getBlockBlobClient(workItem.sourceFile.locator.blobName);
@@ -336,23 +343,36 @@ export class FileCopier {
                                 expiresOn: new Date(Date.now() + 12 * 3600000),
                                 permissions: BlobSASPermissions.from({ read: true })
                             });
+
+                            const properties = await sourceBlobClient.getProperties();
+                            contentLength = properties.contentLength;
+                            contentType = properties.contentType;
+                            lastModified = properties.lastModified;
                         }
                     }
                 }
 
                 // in case we didn't fetch yet the object metadata through operations above we'll do a get request for first byte on the sourceURL (head request does not work on aws v4 signed urls)
-                if (!contentLength) {
-                    const headers = Object.assign({}, this.config.axiosConfig?.headers, sourceHeaders, { range: "bytes=0-0" });
-                    const axiosConfig = Object.assign({}, this.config.axiosConfig, { headers });
+                if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
+                    try {
+                        const headers = Object.assign({}, this.config.axiosConfig?.headers, { range: "bytes=0-0" });
+                        const axiosConfig = Object.assign({}, this.config.axiosConfig, { headers });
 
-                    const headResponse = await axios.get(sourceUrl, axiosConfig);
-                    contentLength = Number.parseInt(headResponse.headers["content-range"].split("/")[1]);
-                    contentType = headResponse.headers["content-type"];
-                    lastModified = new Date(headResponse.headers["last-modified"]);
-
-                    if (Number.isNaN(contentLength)) {
-                        throw new McmaException("Failed to obtain content length");
+                        const headResponse = await axios.get(sourceUrl, axiosConfig);
+                        contentLength = Number.parseInt(headResponse.headers["content-range"].split("/")[1]);
+                        contentType = headResponse.headers["content-type"];
+                        lastModified = new Date(headResponse.headers["last-modified"]);
+                    } catch (error) {
+                        // if a range of bytes=0-0 is not allowed, it means it's an empty file
+                        const axiosError = error as AxiosError;
+                        if (axiosError.status === 416) {
+                            contentLength = 0;
+                        }
                     }
+                }
+
+                if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
+                    throw new McmaException("Failed to obtain content length");
                 }
 
                 // now we check if target already exists and has the same contentLength and a newer lastModified date
@@ -386,7 +406,7 @@ export class FileCopier {
 
                 let skip = contentLength === targetContentLength && contentType === targetContentType && lastModified < targetLastModified;
 
-                resolve({ sourceUrl, sourceHeaders, contentLength, contentType, lastModified, skip });
+                resolve({ sourceUrl, contentLength, contentType, lastModified, skip });
             } catch (error) {
                 reject(error);
             }
@@ -409,7 +429,7 @@ export class FileCopier {
                 throw activeWorkItem.error;
             }
         } else {
-            const { sourceUrl, sourceHeaders, contentLength, contentType, lastModified, skip } = activeWorkItem.result;
+            const { sourceUrl, contentLength, contentType, lastModified, skip } = activeWorkItem.result;
 
             if (skip) {
                 this.logger?.debug(`${activeWorkItem.workItem.destinationFile.locator.url} already present on target location`);
@@ -423,7 +443,6 @@ export class FileCopier {
                 type: (contentLength > this.multipartSize) ? WorkType.MultipartStart : WorkType.Single,
                 retries: 0,
                 sourceUrl,
-                sourceHeaders,
                 contentLength,
                 contentType,
                 lastModified,
@@ -447,7 +466,7 @@ export class FileCopier {
                             StorageClass: workItem.destinationFile.storageClass,
                         }));
                     } else {
-                        const headers = Object.assign({}, this.config.axiosConfig?.headers, workItem.sourceHeaders);
+                        const headers = Object.assign({}, this.config.axiosConfig?.headers);
                         const axiosConfig = Object.assign({}, this.config.axiosConfig, { headers, responseType: "arraybuffer" });
 
                         this.logger?.debug(`Downloading ${workItem.destinationFile.locator.url} from ${workItem.sourceUrl}`);

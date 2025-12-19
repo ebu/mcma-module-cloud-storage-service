@@ -33,132 +33,145 @@ resource "aws_iam_role_policy" "worker" {
   name = aws_iam_role.worker.name
   role = aws_iam_role.worker.id
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = concat([
-      {
-        Sid      = "DescribeCloudWatchLogs"
-        Effect   = "Allow"
-        Action   = "logs:DescribeLogGroups"
-        Resource = "*"
-      },
-      {
-        Sid    = "WriteToCloudWatchLogs"
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
+  policy = jsonencode(
+    {
+      Version = "2012-10-17"
+      Statement = concat(
+        [
+          {
+            Sid      = "DescribeCloudWatchLogs"
+            Effect   = "Allow"
+            Action   = "logs:DescribeLogGroups"
+            Resource = "*"
+          },
+          {
+            Sid    = "WriteToCloudWatchLogs"
+            Effect = "Allow"
+            Action = [
+              "logs:CreateLogGroup",
+              "logs:CreateLogStream",
+              "logs:PutLogEvents",
+            ],
+            Resource = concat([
+              "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:${var.log_group.name}:*",
+              "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.lambda_name_worker}:*",
+              ], var.enhanced_monitoring_enabled ? [
+              "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda-insights:*",
+            ] : [])
+          },
+          {
+            Sid    = "ListAndDescribeDynamoDBTables"
+            Effect = "Allow"
+            Action = [
+              "dynamodb:List*",
+              "dynamodb:DescribeReservedCapacity*",
+              "dynamodb:DescribeLimits",
+              "dynamodb:DescribeTimeToLive",
+            ]
+            Resource = "*"
+          },
+          {
+            Sid    = "AllowTableOperations"
+            Effect = "Allow"
+            Action = [
+              "dynamodb:BatchGetItem",
+              "dynamodb:BatchWriteItem",
+              "dynamodb:DeleteItem",
+              "dynamodb:DescribeTable",
+              "dynamodb:GetItem",
+              "dynamodb:PutItem",
+              "dynamodb:Query",
+              "dynamodb:Scan",
+              "dynamodb:UpdateItem",
+            ]
+            Resource = [
+              aws_dynamodb_table.service_table.arn,
+              "${aws_dynamodb_table.service_table.arn}/index/*",
+            ]
+          },
+          {
+            Sid      = "AllowInvokingWorkerLambda"
+            Effect   = "Allow"
+            Action   = "lambda:InvokeFunction"
+            Resource = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.lambda_name_worker}"
+          },
+          {
+            Sid    = "AllowReadingApiKey"
+            Effect = "Allow"
+            Action = "secretsmanager:GetSecretValue"
+            Resource = [
+              aws_secretsmanager_secret.api_key.arn,
+              aws_secretsmanager_secret.storage_client_config.arn
+            ]
+          },
+          {
+            Sid    = "AllowReadWriteDeleteToTempBucket"
+            Effect = "Allow"
+            Action = [
+              "s3:GetObject",
+              "s3:PutObject",
+              "s3:DeleteObject",
+            ],
+            Resource = var.temp_bucket != null ? "${var.temp_bucket.arn}/${var.temp_bucket_prefix}*" : "${aws_s3_bucket.temp[0].arn}/${var.temp_bucket_prefix}*"
+          }
         ],
-        Resource = concat([
-          "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:${var.log_group.name}:*",
-          "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.lambda_name_worker}:*",
-          ], var.enhanced_monitoring_enabled ? [
-          "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda-insights:*",
-        ] : [])
-      },
-      {
-        Sid    = "ListAndDescribeDynamoDBTables"
-        Effect = "Allow"
-        Action = [
-          "dynamodb:List*",
-          "dynamodb:DescribeReservedCapacity*",
-          "dynamodb:DescribeLimits",
-          "dynamodb:DescribeTimeToLive",
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "AllowTableOperations"
-        Effect = "Allow"
-        Action = [
-          "dynamodb:BatchGetItem",
-          "dynamodb:BatchWriteItem",
-          "dynamodb:DeleteItem",
-          "dynamodb:DescribeTable",
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:Query",
-          "dynamodb:Scan",
-          "dynamodb:UpdateItem",
-        ]
-        Resource = [
-          aws_dynamodb_table.service_table.arn,
-          "${aws_dynamodb_table.service_table.arn}/index/*",
-        ]
-      },
-      {
-        Sid      = "AllowInvokingWorkerLambda"
-        Effect   = "Allow"
-        Action   = "lambda:InvokeFunction"
-        Resource = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:${local.lambda_name_worker}"
-      },
-      {
-        Sid    = "AllowReadingApiKey"
-        Effect = "Allow"
-        Action = "secretsmanager:GetSecretValue"
-        Resource = [
-          aws_secretsmanager_secret.api_key.arn,
-          aws_secretsmanager_secret.storage_client_config.arn
-        ]
-      },
-      ],
-      length(var.execute_api_arns) > 0 ?
-      [
-        {
-          Sid      = "AllowInvokingApiGateway"
-          Effect   = "Allow"
-          Action   = "execute-api:Invoke"
-          Resource = var.execute_api_arns
-        }
-      ] : [],
-      var.xray_tracing_enabled ?
-      [
-        {
-          Sid    = "AllowLambdaWritingToXRay"
-          Effect = "Allow"
-          Action = [
-            "xray:PutTraceSegments",
-            "xray:PutTelemetryRecords",
-            "xray:GetSamplingRules",
-            "xray:GetSamplingTargets",
-            "xray:GetSamplingStatisticSummaries",
-          ]
-          Resource = "*"
-        }
-      ] : [],
-      var.dead_letter_config_target != null ?
-      [
-        {
-          Effect   = "Allow"
-          Action   = "sqs:SendMessage"
-          Resource = var.dead_letter_config_target
-        }
-      ] : [],
-      length(local.buckets_that_require_permissions) > 0 ?
-      [
-        {
-          Sid    = "AllowS3Listing"
-          Effect = "Allow"
-          Action = [
-            "s3:ListBucket"
-          ]
-          Resource = local.buckets_that_require_permissions
-        },
-        {
-          Sid    = "AllowS3Operations"
-          Effect = "Allow"
-          Action = [
-            "s3:GetObject",
-            "s3:PutObject",
-            "s3:DeleteObject",
-            "s3:RestoreObject",
-          ]
-          Resource = [for bucket in local.buckets_that_require_permissions : "${bucket}/*"]
-        }
-      ] : [],
-    )
-  })
+        length(var.execute_api_arns) > 0 ?
+        [
+          {
+            Sid      = "AllowInvokingApiGateway"
+            Effect   = "Allow"
+            Action   = "execute-api:Invoke"
+            Resource = var.execute_api_arns
+          }
+        ] : [],
+        var.xray_tracing_enabled ?
+        [
+          {
+            Sid    = "AllowLambdaWritingToXRay"
+            Effect = "Allow"
+            Action = [
+              "xray:PutTraceSegments",
+              "xray:PutTelemetryRecords",
+              "xray:GetSamplingRules",
+              "xray:GetSamplingTargets",
+              "xray:GetSamplingStatisticSummaries",
+            ]
+            Resource = "*"
+          }
+        ] : [],
+        var.dead_letter_config_target != null ?
+        [
+          {
+            Effect   = "Allow"
+            Action   = "sqs:SendMessage"
+            Resource = var.dead_letter_config_target
+          }
+        ] : [],
+        length(local.buckets_that_require_permissions) > 0 ?
+        [
+          {
+            Sid    = "AllowS3Listing"
+            Effect = "Allow"
+            Action = [
+              "s3:ListBucket"
+            ]
+            Resource = local.buckets_that_require_permissions
+          },
+          {
+            Sid    = "AllowS3Operations"
+            Effect = "Allow"
+            Action = [
+              "s3:GetObject",
+              "s3:PutObject",
+              "s3:DeleteObject",
+              "s3:RestoreObject",
+            ]
+            Resource = [for bucket in local.buckets_that_require_permissions : "${bucket}/*"]
+          }
+        ] : [],
+      )
+    }
+  )
 }
 
 resource "aws_lambda_function" "worker" {
@@ -193,6 +206,8 @@ resource "aws_lambda_function" "worker" {
       STORAGE_CLIENT_CONFIG_HASH      = sha256(aws_secretsmanager_secret_version.storage_client_config.secret_string)
       MAX_CONCURRENCY                 = var.max_concurrency
       MULTIPART_SIZE                  = var.multipart_size
+      TEMP_BUCKET                     = var.temp_bucket != null ? var.temp_bucket.id : aws_s3_bucket.temp[0].id
+      TEMP_BUCKET_PREFIX              = var.temp_bucket_prefix
     }
   }
 

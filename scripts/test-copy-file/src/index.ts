@@ -19,6 +19,7 @@ const JOB_PROFILE = "CopyFile";
 const TERRAFORM_OUTPUT = "../../deployment/terraform.output.json";
 
 const MEDIA_FILE = "C:/Media/2gb_file.mxf";
+const EMPTY_FILE = "C:/Media/empty.txt";
 
 const s3Client = new S3Client({ credentials });
 
@@ -186,9 +187,9 @@ async function main() {
     console.log(`Uploading media file ${MEDIA_FILE}`);
     const awsPublicSource = await uploadFileToBucket(awsPublicSourceBucket, MEDIA_FILE, s3Client);
     const publicSource = new Locator({ url: awsPublicSource.url });
-    const awsPrivateSource = await uploadFileToBucket(awsPrivateSourceBucket, MEDIA_FILE, s3Client);
+    const awsPrivateSource = await uploadFileToBucket(awsPrivateSourceBucket, EMPTY_FILE, s3Client);
     const awsPrivateExtSource = await uploadFileToBucket(awsPrivateExtSourceBucket, MEDIA_FILE, s3Client);
-    const azurePrivateSource = await uploadFileToContainer(azureSourceContainerClient, MEDIA_FILE);
+    const azurePrivateSource = await uploadFileToContainer(azureSourceContainerClient, EMPTY_FILE);
 
     const awsTarget = new S3Locator({ url: await buildS3Url(awsTargetBucket, awsPrivateSource.key, s3Client) });
     const azureTarget = new BlobStorageLocator({ url: buildBlobStorageUrl(azureTargetContainerClient.accountName, azureTargetContainerClient.containerName, azurePrivateSource.blobName) });

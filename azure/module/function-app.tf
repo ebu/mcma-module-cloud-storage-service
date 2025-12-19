@@ -173,6 +173,18 @@ resource "azapi_resource" "function_app" {
             name  = "AzureFunctionsJobHost__extensions__queues__batchSize",
             value = "1"
           },
+          {
+            name  = "TEMP_STORAGE_ACCOUNT_NAME"
+            value = var.temp_storage_account != null ? var.temp_storage_account.name : var.storage_account.name
+          },
+          {
+            name  = "TEMP_CONTAINER_NAME"
+            value = var.temp_container != null ? var.temp_container.name : azurerm_storage_container.temp[0].name
+          },
+          {
+            name  = "TEMP_CONTAINER_PREFIX"
+            value = var.temp_container_prefix
+          }
         ]
       }
       virtualNetworkSubnetId = var.virtual_network_subnet_id
@@ -186,6 +198,14 @@ resource "azurerm_role_assignment" "function_app" {
   scope                = var.storage_account.id
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = azapi_resource.function_app[0].output.identity.principalId
+}
+
+resource "azurerm_role_assignment" "function_app_temp_storage" {
+  count = try(var.temp_storage_account.id != var.storage_account.id, false) ? 1 : 0
+
+  scope                = var.temp_storage_account.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.use_flex_consumption_plan ? azapi_resource.function_app[0].output.identity.principalId : azurerm_windows_function_app.function_app[0].identity[0].principal_id
 }
 
 resource "azurerm_windows_function_app" "function_app" {
@@ -248,6 +268,10 @@ resource "azurerm_windows_function_app" "function_app" {
     MULTIPART_SIZE  = var.multipart_size
 
     AzureFunctionsJobHost__functionTimeout = var.worker_function_timeout != null ? var.worker_function_timeout : var.use_flex_consumption_plan ? "01:00:00" : "00:10:00"
+
+    TEMP_STORAGE_ACCOUNT_NAME = var.temp_storage_account != null ? var.temp_storage_account.name : var.storage_account.name
+    TEMP_CONTAINER_NAME       = var.temp_container != null ? var.temp_container.name : azurerm_storage_container.temp[0].name
+    TEMP_CONTAINER_PREFIX     = var.temp_container_prefix
   }
 
   tags = var.tags

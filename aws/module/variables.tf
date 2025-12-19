@@ -176,3 +176,23 @@ variable "azure_storage_accounts" {
     connection_string = string
   }))
 }
+
+########################
+# Temporary storage
+########################
+
+variable "temp_bucket" {
+  type = object({
+    id     = string
+    arn    = string
+    bucket = string
+  })
+  description = "Optional bucket for service to write temp files"
+  default     = null
+}
+
+variable "temp_bucket_prefix" {
+  type        = string
+  description = "Set an alternative prefix for temp files"
+  default     = "cloud-storage-service/"
+}

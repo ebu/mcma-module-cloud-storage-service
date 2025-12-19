@@ -3,7 +3,7 @@ import { JobStatus, Locator, ProblemDetail, StorageJob, Utils } from "@mcma/core
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
-import { FileCopier, SourceFile, DestinationFile, logError, saveFileCopierState } from "@local/storage";
+import { FileCopier, SourceFile, DestinationFile, logError } from "@local/storage";
 import { WorkerContext } from "../worker-context";
 import { scanSourceFolderForCopy } from "./utils";
 
@@ -108,7 +108,7 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
     const state = fileCopier.getState();
     if (state.workItems.length > 0) {
         logger.info(`${state.workItems.length} work items remaining. Storing FileCopierState`);
-        await saveFileCopierState(state, jobAssignmentDatabaseId, jobAssignmentHelper.dbTable);
+        await ctx.saveFileCopierState(jobAssignmentDatabaseId, state);
 
         logger.info(`Invoking worker again`);
         await ctx.workerInvoker.invoke(getWorkerFunctionId(), {
