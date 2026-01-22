@@ -169,6 +169,11 @@ async function startJob(resourceManager: ResourceManager, sourceFolder: Locator,
 async function testJob(resourceManager: ResourceManager, sourceFolder: Locator, destinationFolder: Locator) {
     let job;
 
+    if (!sourceFolder || !destinationFolder) {
+        log("Skipped");
+        return;
+    }
+
     log("Creating job");
     job = await startJob(resourceManager, sourceFolder, destinationFolder);
 
@@ -179,17 +184,17 @@ async function testJob(resourceManager: ResourceManager, sourceFolder: Locator, 
 }
 
 async function testService(resourceManager: ResourceManager, locators: { [key: string]: Locator }) {
-    // log("Testing copy from private S3 Bucket");
-    // await testJob(resourceManager, locators["awsPrivateSource"], locators["awsTarget"]);
-    //
-    // log("Testing copy from Azure container to S3 Bucket");
-    // await testJob(resourceManager, locators["azurePrivateSource"], locators["awsTarget"]);
+    log("Testing copy from private S3 Bucket");
+    await testJob(resourceManager, locators["awsPrivateSource"], locators["awsTarget"]);
+
+    log("Testing copy from Azure container to S3 Bucket");
+    await testJob(resourceManager, locators["azurePrivateSource"], locators["awsTarget"]);
 
     log("Testing copy to Azure container from private Azure container");
     await testJob(resourceManager, locators["azurePrivateSource"], locators["azureTarget"]);
 
-    // log("Testing copy from private S3 Bucket to to private Azure container");
-    // await testJob(resourceManager, locators["awsPrivateSource"], locators["azureTarget"]);
+    log("Testing copy from private S3 Bucket to to private Azure container");
+    await testJob(resourceManager, locators["awsPrivateSource"], locators["azureTarget"]);
 }
 
 async function main() {
@@ -236,7 +241,7 @@ async function main() {
         azureTarget,
     };
 
-    // await testService(awsResourceManager, locators);
+    await testService(awsResourceManager, locators);
     await testService(azureResourceManager, locators);
 }
 

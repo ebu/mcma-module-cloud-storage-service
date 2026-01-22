@@ -4,7 +4,7 @@ import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { LambdaClient } from "@aws-sdk/client-lambda";
 import { Context, ScheduledEvent } from "aws-lambda";
-import { captureAWSv3Client } from "aws-xray-sdk";
+import { captureAWSv3Client } from "aws-xray-sdk-core";
 
 import { AwsCloudWatchLoggerProvider, getLogGroupName } from "@mcma/aws-logger";
 import { AwsSecretsManagerSecretsProvider } from "@mcma/aws-secrets-manager";
