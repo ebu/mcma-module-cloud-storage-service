@@ -47,7 +47,10 @@ export async function restoreFiles(providers: ProviderCollection, jobAssignmentH
 
     const files: Locator[] = [];
     for (const locator of locators) {
-        files.push(...await scanSourceFolderForRestore(locator, ctx));
+        const scannedFiles = await scanSourceFolderForRestore(locator, ctx);
+        for (const scannedFile of scannedFiles) {
+            files.push(scannedFile);
+        }
     }
 
     if (!priority) {

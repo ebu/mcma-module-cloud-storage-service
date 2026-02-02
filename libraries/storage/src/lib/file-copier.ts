@@ -95,7 +95,9 @@ export class FileCopier {
         this.bytesCopied = state.bytesCopied;
         this.filesTotal = state.filesTotal;
         this.filesCopied = state.filesCopied;
-        this.queuedWorkItems.push(...copyWorkItems);
+        for (const copyWorkItem of copyWorkItems) {
+            this.queuedWorkItems.push(copyWorkItem);
+        }
     }
 
     public getState(): FileCopierState {
