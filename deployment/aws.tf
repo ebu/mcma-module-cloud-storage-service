@@ -42,7 +42,7 @@ resource "aws_cloudwatch_log_group" "main" {
 #########################
 
 module "service_registry_aws" {
-  source = "github.com/ebu/mcma-module-service-registry//aws/module?ref=v1.3.0"
+  source = "github.com/ebu/mcma-module-service-registry//aws/module?ref=v1.3.1"
 
   prefix = "${var.prefix}-service-registry"
 
@@ -71,7 +71,7 @@ module "job_processor_aws" {
     mcma = mcma.aws
   }
 
-  source = "github.com/ebu/mcma-module-job-processor//aws/module?ref=v1.3.0"
+  source = "github.com/ebu/mcma-module-job-processor//aws/module?ref=v1.3.1"
 
   prefix = "${var.prefix}-job-processor"
 
