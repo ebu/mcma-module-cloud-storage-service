@@ -354,20 +354,24 @@ export class FileCopier {
                     }
                 }
 
-                // in case we didn't fetch yet the object metadata through operations above we'll do a get request for first byte on the sourceURL (head request does not work on aws v4 signed urls)
+                // Fetch object metadata if not already available
+                // (HEAD requests don't work on AWS v4 signed URLs, so we request the first byte)
                 if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
                     try {
-                        const headers = Object.assign({}, this.config.axiosConfig?.headers, { range: "bytes=0-0" });
-                        const axiosConfig = Object.assign({}, this.config.axiosConfig, { headers });
+                        const response = await axios.get(sourceUrl, {
+                            ...this.config.axiosConfig,
+                            headers: {
+                                ...this.config.axiosConfig?.headers,
+                                Range: "bytes=0-0"
+                            }
+                        });
 
-                        const headResponse = await axios.get(sourceUrl, axiosConfig);
-                        contentLength = Number.parseInt(headResponse.headers["content-range"].split("/")[1]);
-                        contentType = headResponse.headers["content-type"];
-                        lastModified = new Date(headResponse.headers["last-modified"]);
+                        contentLength = parseInt(response.headers["content-range"].split("/")[1], 10);
+                        contentType = response.headers["content-type"];
+                        lastModified = new Date(response.headers["last-modified"]);
                     } catch (error) {
-                        // if a range of bytes=0-0 is not allowed, it means it's an empty file
-                        const axiosError = error as AxiosError;
-                        if (axiosError.status === 416) {
+                        // 416 Range Not Satisfiable means empty file
+                        if ((error as AxiosError).status === 416) {
                             contentLength = 0;
                         }
                     }
@@ -468,12 +472,10 @@ export class FileCopier {
                             StorageClass: workItem.destinationFile.storageClass,
                         }));
                     } else {
-                        const headers = Object.assign({}, this.config.axiosConfig?.headers);
-                        const axiosConfig = Object.assign({}, this.config.axiosConfig, { headers, responseType: "arraybuffer" });
-
-                        this.logger?.debug(`Downloading ${workItem.destinationFile.locator.url} from ${workItem.sourceUrl}`);
-                        const response = await axios.get(workItem.sourceUrl, axiosConfig);
-                        this.logger?.debug(`Uploading ${workItem.destinationFile.locator.url} to ${workItem.destinationFile.locator.url}`);
+                        const response = await axios.get(workItem.sourceUrl, {
+                            ...this.config.axiosConfig,
+                            responseType: 'stream',
+                        });
 
                         await s3Client.send(new PutObjectCommand({
                             Bucket: workItem.destinationFile.locator.bucket,
@@ -481,6 +483,7 @@ export class FileCopier {
                             Body: response.data,
                             ContentType: workItem.contentType,
                             StorageClass: workItem.destinationFile.storageClass,
+                            ContentLength: workItem.contentLength,
                         }));
                     }
                 } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
@@ -640,11 +643,14 @@ export class FileCopier {
 
                         etag = commandOutput.CopyPartResult.ETag;
                     } else {
-                        const headers = Object.assign({}, this.config.axiosConfig?.headers, { Range: `bytes=${workItem.multipartData.segment.start}-${workItem.multipartData.segment.end}` });
-                        const response = await axios.get(workItem.sourceUrl, Object.assign({}, this.config.axiosConfig, {
-                            responseType: "arraybuffer",
-                            headers
-                        }));
+                        const response = await axios.get(workItem.sourceUrl, {
+                           ...this.config.axiosConfig,
+                           responseType: "stream",
+                           headers: {
+                               ...this.config.axiosConfig?.headers,
+                               Range: `bytes=${workItem.multipartData.segment.start}-${workItem.multipartData.segment.end}`
+                           }
+                        });
 
                         const commandOutput = await s3Client.send(new UploadPartCommand({
                             Bucket: workItem.destinationFile.locator.bucket,
@@ -652,6 +658,7 @@ export class FileCopier {
                             Body: response.data,
                             UploadId: workItem.multipartData.uploadId,
                             PartNumber: workItem.multipartData.segment.partNumber,
+                            ContentLength: workItem.multipartData.segment.length,
                         }));
 
                         etag = commandOutput.ETag;

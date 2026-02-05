@@ -79,7 +79,7 @@ export class StorageClientFactory {
             forcePathStyle = true;
         }
 
-        const s3Client = this.config.buildS3Client({ credentials, region: region ?? bucketConfig.region, endpoint, forcePathStyle });
+        const s3Client = this.config.buildS3Client({ credentials, region: region ?? bucketConfig.region, endpoint, forcePathStyle, requestStreamBufferSize: 65_536 });
         this.s3ClientsMap.set(key, s3Client);
         return s3Client;
     }

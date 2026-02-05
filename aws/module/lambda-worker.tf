@@ -226,6 +226,11 @@ resource "aws_lambda_function" "worker" {
   tags = var.tags
 }
 
+resource "aws_lambda_function_recursion_config" "worker" {
+  function_name  = aws_lambda_function.worker.function_name
+  recursive_loop = "Allow"
+}
+
 locals {
   buckets_that_require_permissions = [
     for each in var.aws_s3_buckets : "arn:aws:s3:::${each.bucket}" if each.access_key == null || each.secret_key == null
