@@ -111,8 +111,18 @@ export class FileCopier {
     }
 
     public addFile(sourceFile: SourceFile, destinationFile: DestinationFile) {
-        if (this.queuedWorkItems.find(w => w.destinationFile.locator.url === destinationFile.locator.url)) {
-            throw new McmaException("DestinationFile already added to FileCopier");
+        const existingWorkItem = this.queuedWorkItems.find(w => w.destinationFile.locator.url === destinationFile.locator.url);
+        if (existingWorkItem) {
+            throw new McmaException(`DestinationFile '${destinationFile.locator.url}' already added to FileCopier`, undefined, {
+                existing: {
+                    sourceFile: existingWorkItem.sourceFile,
+                    destinationFile: existingWorkItem.destinationFile,
+                },
+                added: {
+                    sourceFile: sourceFile,
+                    destinationFile: destinationFile,
+                }
+            });
         }
 
         this.queuedWorkItems.push({
@@ -474,7 +484,7 @@ export class FileCopier {
                     } else {
                         const response = await axios.get(workItem.sourceUrl, {
                             ...this.config.axiosConfig,
-                            responseType: 'stream',
+                            responseType: "stream",
                         });
 
                         await s3Client.send(new PutObjectCommand({
@@ -644,12 +654,12 @@ export class FileCopier {
                         etag = commandOutput.CopyPartResult.ETag;
                     } else {
                         const response = await axios.get(workItem.sourceUrl, {
-                           ...this.config.axiosConfig,
-                           responseType: "stream",
-                           headers: {
-                               ...this.config.axiosConfig?.headers,
-                               Range: `bytes=${workItem.multipartData.segment.start}-${workItem.multipartData.segment.end}`
-                           }
+                            ...this.config.axiosConfig,
+                            responseType: "stream",
+                            headers: {
+                                ...this.config.axiosConfig?.headers,
+                                Range: `bytes=${workItem.multipartData.segment.start}-${workItem.multipartData.segment.end}`
+                            }
                         });
 
                         const commandOutput = await s3Client.send(new UploadPartCommand({
