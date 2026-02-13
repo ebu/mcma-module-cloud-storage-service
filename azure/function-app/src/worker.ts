@@ -44,7 +44,8 @@ function getBlobClient(jobAssignmentId: string) {
     }
 
     const prefix = configVariables.get("TEMP_CONTAINER_PREFIX");
-    return containerClient.getBlockBlobClient(`${prefix}${jobAssignmentId}.json`);
+    const jobAssignmentGuid = jobAssignmentId.substring(jobAssignmentId.lastIndexOf("/") + 1);
+    return containerClient.getBlockBlobClient(`${prefix}${jobAssignmentGuid}.json`);
 }
 
 async function loadFileCopierState(jobAssignmentId: string): Promise<FileCopierState> {

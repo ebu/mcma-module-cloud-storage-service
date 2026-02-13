@@ -72,7 +72,7 @@ export class FileCopier {
     }
 
     public setState(state: FileCopierState) {
-        const copyWorkItems = JSON.parse(JSON.stringify(state.workItems)) as WorkItem[];
+        const copyWorkItems = structuredClone(state.workItems);
 
         const multipartCompleteWorkItems = copyWorkItems.filter(w => w.type === WorkType.MultipartComplete);
         const multipartCompleteWorkItemsMap: { [key: string]: WorkItem } = {};
@@ -106,7 +106,7 @@ export class FileCopier {
             bytesCopied: this.bytesCopied,
             filesTotal: this.filesTotal,
             filesCopied: this.filesCopied,
-            workItems: JSON.parse(JSON.stringify(this.queuedWorkItems)) as WorkItem[]
+            workItems: structuredClone(this.queuedWorkItems),
         };
     }
 

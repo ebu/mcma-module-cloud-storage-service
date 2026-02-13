@@ -44,7 +44,8 @@ const worker = buildWorker(dbTableProvider, loggerProvider, resourceManagerProvi
 
 function computeBucketAndKey(jobAssignmentId: string) {
     const bucket = configVariables.get("TEMP_BUCKET");
-    const key = `${configVariables.get("TEMP_BUCKET_PREFIX")}${jobAssignmentId}.json`;
+    const jobAssignmentGuid = jobAssignmentId.substring(jobAssignmentId.lastIndexOf("/") + 1);
+    const key = `${configVariables.get("TEMP_BUCKET_PREFIX")}${jobAssignmentGuid}.json`;
     return { bucket, key };
 }
 
