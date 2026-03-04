@@ -7,3 +7,11 @@ task run(type: Exec) {
     environment "AWS_PROFILE", awsProfile
     environment "AWS_REGION", awsRegion
 }
+
+task debug(type: Exec) {
+    dependsOn tsc
+    commandLine npmExecutable
+    args "run", "debug"
+    environment "AWS_PROFILE", awsProfile
+    environment "AWS_REGION", awsRegion
+}

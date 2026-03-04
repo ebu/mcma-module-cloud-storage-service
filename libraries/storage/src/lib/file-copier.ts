@@ -1,4 +1,4 @@
-import { AxiosError, AxiosRequestConfig, default as axios } from "axios";
+import { AxiosRequestConfig, default as axios } from "axios";
 import { randomBytes } from "crypto";
 import {
     CompleteMultipartUploadCommand,
@@ -6,23 +6,33 @@ import {
     CreateMultipartUploadCommand,
     GetObjectCommand,
     HeadObjectCommand,
+    ListObjectsV2Command,
+    ListObjectsV2CommandInput,
     PutObjectCommand,
     S3Client,
     UploadPartCommand,
     UploadPartCopyCommand,
 } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { BlobSASPermissions, ContainerClient } from "@azure/storage-blob";
 
 import { Logger, McmaException, Utils } from "@mcma/core";
-import { isS3Locator } from "@mcma/aws-s3";
-import { isBlobStorageLocator } from "@mcma/azure-blob-storage";
+import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
+import { BlobStorageLocator, buildBlobStorageUrl, isBlobStorageLocator } from "@mcma/azure-blob-storage";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-import { ActiveWorkItem, MultipartSegment, SourceFile, DestinationFile, WorkItem, WorkType } from "./model";
-import { logError } from "./utils";
+import { ActiveWorkItem, DestinationFile, MultipartSegment, SourceFile, SourceMethod, WorkItem, WorkType, WorkTypePriority } from "./model";
+import { logError, withRetry } from "./utils";
+import { UrlTrie } from "./url-trie";
 
 const MAX_CONCURRENCY = 32;
-const MULTIPART_SIZE = 67108864; // 64MiB
+const MULTIPART_SEGMENT_BATCH_SIZE = 32;
+
+const KB = 1024;
+const MB = 1024 * KB;
+
+const MULTIPART_SIZE = 64 * MB;
+const MIN_S3_PART_SIZE = 5 * MB;
+const MAX_AZURE_BLOCK_SIZE = 4000 * MB;
 
 export interface FileCopierState {
     filesTotal: number;
@@ -30,64 +40,92 @@ export interface FileCopierState {
     bytesTotal: number;
     bytesCopied: number;
     workItems: WorkItem[];
+    trie: UrlTrie;
 }
 
 export interface FileCopierConfig {
     maxConcurrency?: number;
     multipartSize?: number;
+    multipartSegmentBatchSize?: number;
     getS3Client: (bucket: string, region?: string) => Promise<S3Client>;
     getContainerClient: (account: string, container: string) => Promise<ContainerClient>;
     progressUpdate?: (filesTotal: number, filesCopied: number, bytesTotal: number, bytesCopied: number) => Promise<void>;
     axiosConfig?: AxiosRequestConfig;
     logger?: Logger;
+    debug?: boolean;
 }
 
 export class FileCopier {
+    private readonly multipartSize: number;
+    private readonly multipartSegmentBatchSize: number;
+
     private readonly queuedWorkItems: WorkItem[];
     private readonly activeWorkItems: ActiveWorkItem[];
-    private readonly delayedWorkItems: WorkItem[];
+    private readonly delayedMultipartCompletes: Set<string>;
     private readonly logger?: Logger;
 
+    private destinationUrls: UrlTrie;
+
     private maxConcurrency: number;
-    private multipartSize: number;
     private filesTotal: number;
     private filesCopied: number;
     private bytesTotal: number;
     private bytesCopied: number;
-    private processing: boolean;
-    private running: boolean;
-    private error: Error;
+    private processing = false;
+    private running = false;
+    private error?: Error;
 
     constructor(private config: FileCopierConfig) {
         this.queuedWorkItems = [];
         this.activeWorkItems = [];
-        this.delayedWorkItems = [];
+        this.delayedMultipartCompletes = new Set<string>();
+        this.destinationUrls = new UrlTrie();
+
         this.filesTotal = 0;
         this.filesCopied = 0;
         this.bytesTotal = 0;
         this.bytesCopied = 0;
-        this.logger = config.logger;
+        this.logger = this.config.logger;
         this.maxConcurrency = this.config.maxConcurrency > 0 && this.config.maxConcurrency <= 64 ? this.config.maxConcurrency : MAX_CONCURRENCY;
-        this.multipartSize = this.config.multipartSize >= 5242880 && this.config.multipartSize <= 4194304000 ? this.config.multipartSize : MULTIPART_SIZE; // min limit AWS and max limit blob storage
+        this.multipartSize = this.config.multipartSize >= MIN_S3_PART_SIZE && this.config.multipartSize <= MAX_AZURE_BLOCK_SIZE ? this.config.multipartSize : MULTIPART_SIZE; // min limit AWS and max limit blob storage
+        this.multipartSegmentBatchSize = this.config.multipartSegmentBatchSize > 0 && this.config.multipartSegmentBatchSize <= 1000 ? this.config.multipartSegmentBatchSize : MULTIPART_SEGMENT_BATCH_SIZE;
     }
 
-    public setState(state: FileCopierState) {
-        const copyWorkItems = structuredClone(state.workItems);
-
-        const multipartCompleteWorkItems = copyWorkItems.filter(w => w.type === WorkType.MultipartComplete);
-        const multipartCompleteWorkItemsMap: { [key: string]: WorkItem } = {};
-        for (const workItem of multipartCompleteWorkItems) {
-            multipartCompleteWorkItemsMap[workItem.destinationFile.locator.url] = workItem;
+    public async setState(state: FileCopierState) {
+        if (this.running || this.processing) {
+            throw new McmaException("Unable to set state while running");
         }
 
-        for (const workItem of copyWorkItems) {
+        const workItems = structuredClone(state.workItems);
+
+        // multi part segments were serialized separately from their parent multipart work item. We need to 'link' them together again
+        const multipartWorkItems = workItems.filter(w => w.type === WorkType.MultipartComplete || w.type === WorkType.MultipartStart);
+        const multipartWorkItemsMap = new Map<string, WorkItem>();
+        for (const workItem of multipartWorkItems) {
+            if (multipartWorkItemsMap.has(workItem.destinationFile.locator.url)) {
+                throw new McmaException(`Invalid state provided. Multiple work items with same destination detected: ${workItem.destinationFile.locator.url}`);
+            }
+            if (!workItem.multipartData || !Array.isArray(workItem.multipartData.segments)) {
+                throw new McmaException(`Invalid state provided. Multipart start/complete work item without valid multipartData property detected: ${workItem.destinationFile.locator.url}`);
+            }
+            multipartWorkItemsMap.set(workItem.destinationFile.locator.url, workItem);
+        }
+
+        for (const workItem of workItems) {
             if (workItem.type === WorkType.MultipartSegment) {
-                const multipartCompleteWorkItem = multipartCompleteWorkItemsMap[workItem.destinationFile.locator.url];
-                if (!multipartCompleteWorkItem) {
-                    throw new McmaException("Incomplete work items list");
+                if (!workItem.multipartData || !workItem.multipartData.segment) {
+                    throw new McmaException(`Invalid state provided. Multipart segment work item without valid multipartData property detected: ${workItem.destinationFile.locator.url}`);
                 }
-                const idx = multipartCompleteWorkItem.multipartData.segments.findIndex(s => s.partNumber === workItem.multipartData.segment.partNumber);
-                multipartCompleteWorkItem.multipartData.segments[idx] = workItem.multipartData.segment;
+                const multipartWorkItem = multipartWorkItemsMap.get(workItem.destinationFile.locator.url);
+                if (!multipartWorkItem) {
+                    throw new McmaException(`Invalid state provided. Parent multipart work item not found for segment work item: ${workItem.destinationFile.locator.url}`);
+                }
+                const idx = multipartWorkItem.multipartData.segments.findIndex(s => s.partNumber === workItem.multipartData.segment.partNumber);
+                if (idx < 0) {
+                    throw new McmaException(`Invalid state provided. Segment not found in parent work item: ${workItem.destinationFile.locator.url} - ${workItem.multipartData.segment.partNumber}`);
+                }
+
+                multipartWorkItem.multipartData.segments[idx] = workItem.multipartData.segment;
             }
         }
 
@@ -95,38 +133,57 @@ export class FileCopier {
         this.bytesCopied = state.bytesCopied;
         this.filesTotal = state.filesTotal;
         this.filesCopied = state.filesCopied;
-        for (const copyWorkItem of copyWorkItems) {
-            this.queuedWorkItems.push(copyWorkItem);
+        this.queuedWorkItems.length = 0;
+        this.activeWorkItems.length = 0;
+        this.delayedMultipartCompletes.clear();
+        if (!state.trie) {
+            throw new McmaException("Invalid state provided. Trie missing");
+        }
+        this.destinationUrls = await state.trie.clone();
+
+        for (const workItem of workItems) {
+            if (!this.destinationUrls.has(workItem.destinationFile.locator.url)) {
+                throw new McmaException(`Invalid state. WorkItem with destination not found in trie: ${workItem.destinationFile.locator.url}`);
+            }
+            workItem.retries = 0;
+            this.queueWorkItem(workItem);
         }
     }
 
-    public getState(): FileCopierState {
+    public async getState(): Promise<FileCopierState> {
+        if (this.running || this.processing) {
+            throw new McmaException("Unable to get state while running");
+        }
+
         return {
             bytesTotal: this.bytesTotal,
             bytesCopied: this.bytesCopied,
             filesTotal: this.filesTotal,
             filesCopied: this.filesCopied,
             workItems: structuredClone(this.queuedWorkItems),
+            trie: await this.destinationUrls.clone(),
         };
     }
 
+    public addFolder(sourceFolder: SourceFile, destinationFolder: DestinationFile) {
+        this.queueWorkItem({
+            type: WorkType.ScanFolder,
+            sourceFile: sourceFolder,
+            destinationFile: destinationFolder,
+            retries: 0,
+        });
+    }
+
     public addFile(sourceFile: SourceFile, destinationFile: DestinationFile) {
-        const existingWorkItem = this.queuedWorkItems.find(w => w.destinationFile.locator.url === destinationFile.locator.url);
-        if (existingWorkItem) {
+        if (!this.destinationUrls.insert(destinationFile.locator.url)) {
             throw new McmaException(`DestinationFile '${destinationFile.locator.url}' already added to FileCopier`, undefined, {
-                existing: {
-                    sourceFile: existingWorkItem.sourceFile,
-                    destinationFile: existingWorkItem.destinationFile,
-                },
-                added: {
-                    sourceFile: sourceFile,
-                    destinationFile: destinationFile,
-                }
+                sourceFile: sourceFile,
+                destinationFile: destinationFile,
             });
         }
 
-        this.queuedWorkItems.push({
-            type: WorkType.Prepare,
+        this.queueWorkItem({
+            type: WorkType.ScanFile,
             sourceFile,
             destinationFile,
             retries: 0,
@@ -138,22 +195,22 @@ export class FileCopier {
             throw new McmaException("bailOutDate must be later than runUntilDate");
         }
 
-        this.logger?.debug("FileCopier.runUntil() - Start");
+        this.logger?.debug("FileCopier:runUntil() - Start");
         if (this.running || this.processing) {
-            throw new McmaException("Can't invoke method FileCopier.runUntil if it's already invoked");
+            throw new McmaException("Can't invoke method FileCopier:runUntil if it's already invoked");
         }
 
         this.running = true;
         try {
             this.maxConcurrency = this.config.maxConcurrency > 0 && this.config.maxConcurrency < 64 ? this.config.maxConcurrency : MAX_CONCURRENCY;
 
-            this.logger?.debug("FileCopier.runUntil() - Starting process thread");
+            this.logger?.debug("FileCopier:runUntil() - Starting process thread");
 
-            this.process().then();
+            void this.process();
 
-            this.logger?.debug("FileCopier.runUntil() - Wait until timeout, finished work, or an error");
+            this.logger?.debug("FileCopier:runUntil() - Wait until timeout, finished work, or an error");
 
-            while (runUntilDate > new Date() && (this.activeWorkItems.length > 0 || this.queuedWorkItems.length > 0 || this.delayedWorkItems.length) && !this.error) {
+            while (runUntilDate > new Date() && (this.activeWorkItems.length > 0 || this.queuedWorkItems.length > 0 || this.delayedMultipartCompletes.size > 0) && !this.error) {
                 await Utils.sleep(1000);
                 if (this.config.progressUpdate) {
                     await this.config.progressUpdate(this.filesTotal, this.filesCopied, this.bytesTotal, this.bytesCopied);
@@ -161,21 +218,38 @@ export class FileCopier {
             }
 
             if (!(runUntilDate > new Date())) {
-                this.logger?.debug("FileCopier.runUntil() - Timeout reached");
+                this.logger?.debug("FileCopier:runUntil() - Timeout reached");
             } else if (this.error) {
-                this.logger?.debug("FileCopier.runUntil() - Error occurred");
+                this.logger?.debug("FileCopier:runUntil() - Error occurred");
             } else {
-                this.logger?.debug("FileCopier.runUntil() - Finished work");
+                this.logger?.debug("FileCopier:runUntil() - Finished work");
             }
 
             this.maxConcurrency = 0;
 
-            if (this.processing && this.activeWorkItems.length > 0) {
-                this.logger?.debug("FileCopier.runUntil() - Wait for active work items to finish");
+            const tenSecondsBeforeBailout = new Date(bailOutDate.getTime() - 10000);
 
-                while (this.activeWorkItems.length > 0) {
-                    if (bailOutDate < new Date()) {
-                        throw new McmaException("FileCopier not able to finish workItems in time. Bailing out");
+            if (this.processing && (this.activeWorkItems.length > 0 || this.delayedMultipartCompletes.size > 0)) {
+                this.logger?.debug("FileCopier:runUntil() - Wait for active work items to finish");
+
+                let aborted = false;
+
+                while (this.activeWorkItems.length > 0 || this.delayedMultipartCompletes.size > 0) {
+                    const now = new Date();
+
+                    if (bailOutDate < now) {
+                        throw new McmaException("FileCopier:runUntil() - Not able to finish workItems in time. Bailing out");
+                    }
+
+                    if (!aborted && tenSecondsBeforeBailout < now) {
+                        this.logger?.debug("FileCopier:runUntil() - Reaching 10 seconds before bailout time. Aborting active work items.");
+                        // Abort all active workItems 10 seconds before bail out time
+                        for (const activeWorkItem of this.activeWorkItems) {
+                            if (!activeWorkItem.abortController.signal.aborted) {
+                                activeWorkItem.abortController.abort();
+                            }
+                        }
+                        aborted = true;
                     }
 
                     await Utils.sleep(1000);
@@ -189,29 +263,58 @@ export class FileCopier {
         }
 
         if (this.processing) {
-            this.logger?.debug("FileCopier.runUntil() - Wait for process thread to stop");
+            this.logger?.debug("FileCopier:runUntil() - Wait for process thread to stop");
 
             while (this.processing) {
                 if (bailOutDate < new Date()) {
-                    throw new McmaException("FileCopier processing thread not finishing in time. Bailing out");
+                    throw new McmaException("FileCopier:runUntil() - Not able to finish workItems in time. Bailing out");
                 }
                 await Utils.sleep(250);
             }
         }
 
-        this.logger?.debug("FileCopier.runUntil() - End");
+        this.logger?.debug("FileCopier:runUntil() - End");
     }
 
     public getError() {
         return this.error;
     }
 
+    private buildWorkItemLogMessage(workItem: WorkItem, message: string) {
+        switch (workItem.type) {
+            case WorkType.ScanFolder:
+            case WorkType.ScanFile:
+            case WorkType.ProcessFolder:
+            case WorkType.ProcessFile:
+            case WorkType.Single:
+            case WorkType.MultipartStart:
+            case WorkType.MultipartComplete:
+                return `FileCopier:${workItem.type} - ${workItem.destinationFile.locator.url} - ${message}`;
+            case WorkType.MultipartSegment:
+                return `FileCopier:${workItem.type} - ${workItem.destinationFile.locator.url} - ${workItem.multipartData?.segment?.partNumber} - ${message}`;
+        }
+    }
+
+    private logDebug(workItem: WorkItem, message: string) {
+        if (!!this.config.debug) {
+            this.logger?.debug(this.buildWorkItemLogMessage(workItem, message));
+        }
+    }
+
+    private logInfo(workItem: WorkItem, message: string) {
+        this.logger?.info(this.buildWorkItemLogMessage(workItem, message));
+    }
+
+    private queueWorkItem(workItem: WorkItem) {
+        const index = upperBoundByPriority(this.queuedWorkItems, workItem);
+        this.queuedWorkItems.splice(index, 0, workItem);
+    }
+
     private async process() {
-        this.logger?.debug("FileCopier.process() - Begin");
+        this.logger?.debug("FileCopier:process() - Begin");
         this.processing = true;
         try {
-            while (this.running && (this.queuedWorkItems.length > 0 || this.activeWorkItems.length > 0 || this.delayedWorkItems.length > 0)) {
-
+            while (this.running && (this.queuedWorkItems.length > 0 || this.activeWorkItems.length > 0 || this.delayedMultipartCompletes.size > 0)) {
                 // if we have active work items AND we have reached either max concurrency or an empty queue we need to wait for active work items to complete
                 if (this.activeWorkItems.length > 0 && (this.activeWorkItems.length >= this.maxConcurrency || this.queuedWorkItems.length === 0)) {
                     const activeWorkItem = await Promise.race(this.activeWorkItems.map(activeWorkItem =>
@@ -226,570 +329,1151 @@ export class FileCopier {
                     const idx = this.activeWorkItems.indexOf(activeWorkItem);
                     this.activeWorkItems.splice(idx, 1);
 
-                    switch (activeWorkItem.workItem.type) {
-                        case WorkType.Prepare:
-                            this.finishWorkItemPrepare(activeWorkItem);
-                            break;
-                        case WorkType.Single:
-                            this.finishWorkItemSingle(activeWorkItem);
-                            break;
-                        case WorkType.MultipartStart:
-                            this.finishWorkItemMultipartStart(activeWorkItem);
-                            break;
-                        case WorkType.MultipartSegment:
-                            this.finishWorkItemMultipartSegment(activeWorkItem);
-                            break;
-                        case WorkType.MultipartComplete:
-                            this.finishWorkItemMultipartComplete(activeWorkItem);
-                            break;
+                    const err = activeWorkItem.error as any;
+                    const code = err?.code;
+                    const message = err?.message ?? String(err);
+
+                    if (activeWorkItem.abortController.signal.aborted) {
+                        this.logInfo(activeWorkItem.workItem, "Operation aborted. Re-queuing");
+                        this.queueWorkItem(activeWorkItem.workItem);
+                    } else if (err && code !== "PendingCopyOperation") {
+                        this.logInfo(activeWorkItem.workItem, "Error occurred: " + message);
+                        logError(this.logger, err);
+                        if (activeWorkItem.workItem.retries++ < 2) {
+                            this.queueWorkItem(activeWorkItem.workItem);
+                        } else {
+                            throw err;
+                        }
+                    } else {
+                        const { workItem, result } = activeWorkItem;
+
+                        this.logDebug(workItem, "finish");
+
+                        switch (workItem.type) {
+                            case WorkType.ScanFolder:
+                                this.finishWorkItemScanFolder(workItem, result);
+                                break;
+                            case WorkType.ScanFile:
+                                this.finishWorkItemScanFile(workItem, result);
+                                break;
+                            case WorkType.ProcessFolder:
+                                this.finishWorkItemProcessFolder(workItem, result);
+                                break;
+                            case WorkType.ProcessFile:
+                                this.finishWorkItemProcessFile(workItem, result);
+                                break;
+                            case WorkType.Single:
+                                this.finishWorkItemSingle(workItem);
+                                break;
+                            case WorkType.MultipartStart:
+                                this.finishWorkItemMultipartStart(workItem, result);
+                                break;
+                            case WorkType.MultipartSegment:
+                                this.finishWorkItemMultipartSegment(workItem, result);
+                                break;
+                            case WorkType.MultipartComplete:
+                                this.finishWorkItemMultipartComplete(workItem, result);
+                                break;
+                            default:
+                                throw new McmaException("Unexpected workItem type " + workItem.type);
+                        }
                     }
                 }
 
                 // if we have queued WorkItems and we have have not yet reached max concurrency we'll process next work item.
                 if (this.queuedWorkItems.length > 0 && this.activeWorkItems.length < this.maxConcurrency) {
                     const workItem = this.queuedWorkItems.shift();
+
+                    this.logDebug(workItem, "process");
+
+                    const abortController = new AbortController();
+                    let promise: Promise<any>;
                     switch (workItem.type) {
-                        case WorkType.Prepare:
-                            this.processWorkItemPrepare(workItem);
+                        case WorkType.ScanFolder:
+                            promise = this.processWorkItemScanFolder(workItem, abortController.signal);
+                            break;
+                        case WorkType.ScanFile:
+                            promise = this.processWorkItemScanFile(workItem, abortController.signal);
+                            break;
+                        case WorkType.ProcessFolder:
+                            promise = this.processWorkItemProcessFolder(workItem, abortController.signal);
+                            break;
+                        case WorkType.ProcessFile:
+                            promise = this.processWorkItemProcessFile(workItem, abortController.signal);
                             break;
                         case WorkType.Single:
-                            this.processWorkItemSingle(workItem);
+                            promise = this.processWorkItemSingle(workItem, abortController.signal);
                             break;
                         case WorkType.MultipartStart:
-                            this.processWorkItemMultipartStart(workItem);
+                            promise = this.processWorkItemMultipartStart(workItem, abortController.signal);
                             break;
                         case WorkType.MultipartSegment:
-                            this.processWorkItemMultipartSegment(workItem);
+                            promise = this.processWorkItemMultipartSegment(workItem, abortController.signal);
                             break;
                         case WorkType.MultipartComplete:
-                            this.processWorkItemMultipartComplete(workItem);
+                            promise = this.processWorkItemMultipartComplete(workItem, abortController.signal);
                             break;
+                        default:
+                            throw new McmaException("Unexpected workItem type " + workItem.type);
                     }
+
+                    this.activeWorkItems.push({
+                        workItem,
+                        promise,
+                        abortController,
+                    });
                 } else {
                     await Utils.sleep(250);
                 }
             }
         } catch (error) {
-            this.logger?.error("FileCopier.process() - Error caught:");
+            this.logger?.error("FileCopier:process() - Error caught:");
             logError(this.logger, error);
             this.error = error;
         } finally {
             this.processing = false;
-            this.logger?.debug("FileCopier.process() - End");
+            this.logger?.debug("FileCopier:process() - End");
+        }
+    }
+
+
+    /**
+     * The goal of start ScanFolder is to scan a page of files, and obtain the count and size of files, compute destination url and add it to collection
+     * to test for duplicates
+     */
+    private async processWorkItemScanFolder(workItem: WorkItem, abortSignal: AbortSignal) {
+        const PAGE_SIZE = 1000;
+
+        const sourceFolder = workItem.sourceFile;
+        const destinationFolder = workItem.destinationFile;
+
+        let files = 0;
+        let bytes = 0;
+        let continuationToken: string | undefined = undefined;
+
+        if (isS3Locator(sourceFolder.locator)) {
+            const s3Client = await this.config.getS3Client(sourceFolder.locator.bucket, sourceFolder.locator.region);
+
+            const params: ListObjectsV2CommandInput = {
+                Bucket: sourceFolder.locator.bucket,
+                Prefix: sourceFolder.locator.key,
+                ContinuationToken: workItem.continuationToken,
+                MaxKeys: PAGE_SIZE
+            };
+
+            const output = await s3Client.send(new ListObjectsV2Command(params), { abortSignal });
+            continuationToken = output.NextContinuationToken;
+
+            if (Array.isArray(output.Contents)) {
+                for (const content of output.Contents) {
+                    files++;
+                    bytes += content.Size ?? 0;
+
+                    const sourceFile: SourceFile = {
+                        locator: new S3Locator({
+                            url: await buildS3Url(sourceFolder.locator.bucket, content.Key, sourceFolder.locator.region)
+                        }),
+                        egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + content.Key.substring(sourceFolder.locator.key.length) : undefined,
+                    };
+
+                    const destinationFile = await buildDestinationFile(sourceFolder, sourceFile, destinationFolder);
+                    if (!this.destinationUrls.insert(destinationFile.locator.url)) {
+                        throw new McmaException(`DestinationFile '${destinationFile.locator.url}' already added to FileCopier`, undefined, {
+                            sourceFolder,
+                            sourceFile,
+                            destinationFolder,
+                            destinationFile,
+                        });
+                    }
+                }
+            }
+        } else if (isBlobStorageLocator(sourceFolder.locator)) {
+            const containerClient = await this.config.getContainerClient(sourceFolder.locator.account, sourceFolder.locator.container);
+
+            const iterator = containerClient
+                .listBlobsFlat({
+                    prefix: sourceFolder.locator.blobName,
+                    abortSignal,
+                })
+                .byPage({
+                    maxPageSize: PAGE_SIZE,
+                    continuationToken: workItem.continuationToken,
+                });
+
+            const page = await iterator.next();
+            if (!page.done && page.value) {
+                const response = page.value;
+                continuationToken = response.continuationToken;
+
+                for (const blob of response.segment.blobItems) {
+                    if (blob.name.endsWith("/")) {
+                        continue;
+                    }
+
+                    files++;
+                    bytes += blob.properties.contentLength ?? 0;
+
+                    const sourceFile: SourceFile = {
+                        locator: new BlobStorageLocator({
+                            url: buildBlobStorageUrl(sourceFolder.locator.account, sourceFolder.locator.container, blob.name)
+                        }),
+                        egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + blob.name.substring(sourceFolder.locator.blobName.length) : undefined,
+                    };
+
+                    const destinationFile = await buildDestinationFile(sourceFolder, sourceFile, destinationFolder);
+                    if (!this.destinationUrls.insert(destinationFile.locator.url)) {
+                        throw new McmaException(`DestinationFile '${destinationFile.locator.url}' already added to FileCopier`, undefined, {
+                            sourceFolder,
+                            sourceFile,
+                            destinationFolder,
+                            destinationFile,
+                        });
+                    }
+                }
+            }
+        }
+
+        return {
+            files,
+            bytes,
+            continuationToken,
+        };
+    }
+
+    /**
+     * The goal of finish ScanFolder is to get the output from previous method. Add it to the totals and
+     * generate a new ScanFolder workItem if there is a continuationToken or else generate a ProcessFolder workItem
+     */
+    private finishWorkItemScanFolder(workItem: WorkItem, result: { files: number, bytes: number, continuationToken?: string }) {
+        this.filesTotal += result.files;
+        this.bytesTotal += result.bytes;
+
+        if (result.continuationToken) {
+            this.queueWorkItem({
+                ...workItem,
+                continuationToken: result.continuationToken,
+                retries: 0,
+            });
+        } else {
+            this.queueWorkItem({
+                ...workItem,
+                type: WorkType.ProcessFolder,
+                continuationToken: undefined,
+                retries: 0,
+            });
+        }
+    }
+
+    /**
+     * The goal of start ScanFile is to get the header metadata such as length, type, and lastModified
+     */
+    private async processWorkItemScanFile(workItem: WorkItem, abortSignal: AbortSignal) {
+        let contentLength: number | undefined;
+        let contentType: string | undefined;
+        let lastModified: Date | undefined;
+
+        if (isS3Locator(workItem.sourceFile.locator)) {
+            try {
+                const s3Client = await this.config.getS3Client(workItem.sourceFile.locator.bucket, workItem.sourceFile.locator.region);
+                const commandOutput = await s3Client.send(new HeadObjectCommand({
+                    Bucket: workItem.sourceFile.locator.bucket,
+                    Key: workItem.sourceFile.locator.key,
+                }), { abortSignal });
+
+                contentLength = commandOutput.ContentLength;
+                contentType = commandOutput.ContentType;
+                lastModified = commandOutput.LastModified;
+            } catch (error) {
+                if (abortSignal.aborted) {
+                    throw error;
+                }
+                const msg = error instanceof Error ? error.message : String(error);
+                this.logInfo(workItem, "Ignored error: " + msg);
+                logError(this.logger, error);
+            }
+        } else if (isBlobStorageLocator(workItem.sourceFile.locator)) {
+            try {
+                const sourceContainerClient = await this.config.getContainerClient(workItem.sourceFile.locator.account, workItem.sourceFile.locator.container);
+                const sourceBlobClient = sourceContainerClient.getBlockBlobClient(workItem.sourceFile.locator.blobName);
+                const properties = await sourceBlobClient.getProperties({ abortSignal });
+
+                contentLength = properties.contentLength;
+                contentType = properties.contentType;
+                lastModified = properties.lastModified;
+            } catch (error) {
+                if (abortSignal.aborted) {
+                    throw error;
+                }
+                const msg = error instanceof Error ? error.message : String(error);
+                this.logInfo(workItem, "Ignored error: " + msg);
+                logError(this.logger, error);
+            }
+        }
+
+        if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
+            const response = await axios.head(workItem.sourceFile.egressUrl ?? workItem.sourceFile.locator.url, {
+                ...this.config.axiosConfig,
+                signal: abortSignal,
+            });
+
+            contentLength = Number(response.headers["content-length"]);
+            contentType = response.headers["content-type"];
+            lastModified = new Date(response.headers["last-modified"]);
+        }
+
+        if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
+            throw new McmaException("Failed to obtain content length");
+        }
+
+        return {
+            contentLength,
+            contentType,
+            lastModified: Utils.ensureValidDateOrUndefined(lastModified),
+        };
+    }
+
+    /**
+     * The goal of finish ScanFile is to add to totals and create a ProcessFile work item
+     */
+    private finishWorkItemScanFile(workItem: WorkItem, result: { contentLength: number, contentType?: string, lastModified?: Date }) {
+        if (!Number.isSafeInteger(result.contentLength) || result.contentLength < 0) {
+            throw new McmaException("Invalid contentLength for finishWorkItemScanFile work item");
+        }
+
+        this.filesTotal++;
+        this.bytesTotal += result.contentLength;
+
+        this.queueWorkItem({
+            ...workItem,
+            type: WorkType.ProcessFile,
+            contentLength: result.contentLength,
+            contentType: result.contentType,
+            lastModified: result.lastModified,
+            retries: 0,
+        });
+    }
+
+    /**
+     * The goal of processWorkItemProcessFolder is to generate ProcessFile work items for as long as there are still file
+     */
+    private async processWorkItemProcessFolder(workItem: WorkItem, abortSignal: AbortSignal) {
+        const PAGE_SIZE = 100;
+
+        const sourceFolder = workItem.sourceFile;
+        const destinationFolder = workItem.destinationFile;
+
+        let continuationToken: string | undefined;
+
+        const transfers: {
+            sourceFile: SourceFile,
+            destinationFile: DestinationFile,
+            contentLength: number,
+            contentType: string,
+            lastModified: Date,
+        }[] = [];
+
+        if (isS3Locator(sourceFolder.locator)) {
+            const s3Client = await this.config.getS3Client(sourceFolder.locator.bucket, sourceFolder.locator.region);
+
+            const params: ListObjectsV2CommandInput = {
+                Bucket: sourceFolder.locator.bucket,
+                Prefix: sourceFolder.locator.key,
+                ContinuationToken: workItem.continuationToken,
+                MaxKeys: PAGE_SIZE
+            };
+
+            const output = await s3Client.send(new ListObjectsV2Command(params), { abortSignal });
+            continuationToken = output.NextContinuationToken;
+
+            if (Array.isArray(output.Contents)) {
+                for (const content of output.Contents) {
+                    const sourceFile: SourceFile = {
+                        locator: new S3Locator({
+                            url: await buildS3Url(sourceFolder.locator.bucket, content.Key, sourceFolder.locator.region)
+                        }),
+                        egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + content.Key.substring(sourceFolder.locator.key.length) : undefined,
+                    };
+
+                    const destinationFile = await buildDestinationFile(sourceFolder, sourceFile, destinationFolder);
+
+                    const sourceBucket = sourceFolder.locator.bucket;
+                    const headOutput = await withRetry(() => s3Client.send(new HeadObjectCommand({
+                        Bucket: sourceBucket,
+                        Key: content.Key,
+                    }), { abortSignal }), abortSignal);
+
+
+                    if (!Number.isSafeInteger(headOutput.ContentLength) || headOutput.ContentLength < 0) {
+                        throw new McmaException("Failed to obtain content length");
+                    }
+
+                    transfers.push({
+                        sourceFile,
+                        destinationFile,
+                        contentLength: headOutput.ContentLength,
+                        contentType: headOutput.ContentType,
+                        lastModified: headOutput.LastModified,
+                    });
+                }
+            }
+        } else if (isBlobStorageLocator(sourceFolder.locator)) {
+            const containerClient = await this.config.getContainerClient(sourceFolder.locator.account, sourceFolder.locator.container);
+
+            const iterator = containerClient
+                .listBlobsFlat({
+                    prefix: sourceFolder.locator.blobName,
+                    abortSignal,
+                })
+                .byPage({
+                    maxPageSize: PAGE_SIZE,
+                    continuationToken: workItem.continuationToken,
+                });
+
+            const page = await iterator.next();
+            if (!page.done && page.value) {
+                const response = page.value;
+                continuationToken = response.continuationToken;
+
+                for (const blob of response.segment.blobItems) {
+                    const sourceFile: SourceFile = {
+                        locator: new BlobStorageLocator({
+                            url: buildBlobStorageUrl(sourceFolder.locator.account, sourceFolder.locator.container, blob.name)
+                        }),
+                        egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + blob.name.substring(sourceFolder.locator.blobName.length) : undefined,
+                    };
+
+                    const destinationFile = await buildDestinationFile(sourceFolder, sourceFile, destinationFolder);
+
+                    if (!Number.isSafeInteger(blob.properties.contentLength) || blob.properties.contentLength < 0) {
+                        throw new McmaException("Failed to obtain content length");
+                    }
+
+                    transfers.push({
+                        sourceFile,
+                        destinationFile,
+                        contentLength: blob.properties.contentLength,
+                        contentType: blob.properties.contentType,
+                        lastModified: blob.properties.lastModified,
+                    });
+                }
+            }
+        }
+
+        return {
+            continuationToken,
+            transfers,
+        };
+    }
+
+
+    /**
+     * The goal of finishWorkItemProcessFolder is to queue ProcessFile WorkItems for each of the transfers, and if there is a continuation token another
+     * ProcessFolder workItem.
+     */
+    private finishWorkItemProcessFolder(workItem: WorkItem, result: {
+        continuationToken?: string,
+        transfers: {
+            sourceFile: SourceFile,
+            destinationFile: DestinationFile,
+            contentLength: number,
+            contentType: string,
+            lastModified: Date,
+        }[],
+    }) {
+
+        for (const transfer of result.transfers) {
+            this.queueWorkItem({
+                type: WorkType.ProcessFile,
+                sourceFile: transfer.sourceFile,
+                destinationFile: transfer.destinationFile,
+                contentLength: transfer.contentLength,
+                contentType: transfer.contentType,
+                lastModified: transfer.lastModified,
+                retries: 0,
+            });
+        }
+
+        if (result.continuationToken) {
+            this.queueWorkItem({
+                ...workItem,
+                continuationToken: result.continuationToken,
+                retries: 0,
+            });
         }
     }
 
     /***
-     * The goal of work item prepare is to figure out how the source should be read (URL or S3 Copy),
-     * to obtain object metadata, and to determine whether the target object already exists
+     * The goal of ProcessFile is to figure out how the source should be read (URL or S3 Copy)
+     * and to determine whether the target object already exists and should be skipped
      ***/
-    processWorkItemPrepare(workItem: WorkItem) {
-        this.logger?.debug(`FileCopier.processWorkItemPrepare() - ${workItem.destinationFile.locator.url}`);
+    private async processWorkItemProcessFile(workItem: WorkItem, abortSignal: AbortSignal) {
+        let sourceMethod: SourceMethod | undefined;
 
-        const promise = new Promise<any>(async (resolve, reject) => {
-            try {
-                let sourceUrl: string = undefined;
-                let contentLength: number = undefined;
-                let contentType: string = undefined;
-                let lastModified: Date = undefined;
+        if (workItem.sourceFile.egressUrl) {
+            sourceMethod = SourceMethod.EgressUrl;
+        } else {
+            if (isS3Locator(workItem.sourceFile.locator) && isS3Locator(workItem.destinationFile.locator)) {
+                // if both source and target are S3 try to see if we can access the source with target credentials so we can do s3 copy
+                const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket, workItem.sourceFile.locator.region);
 
-                if (workItem.sourceFile.egressUrl) {
-                    // in case we have an egressUrl, we will use that one.
-                    sourceUrl = workItem.sourceFile.egressUrl;
-                } else {
-                    if (isS3Locator(workItem.sourceFile.locator) && isS3Locator(workItem.destinationFile.locator)) {
-                        // if both source and target are S3 try to see if we can access the source with target credentials so we can do s3 copy
-                        const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket, workItem.sourceFile.locator.region);
+                try {
+                    await s3Client.send(new HeadObjectCommand({
+                        Bucket: workItem.sourceFile.locator.bucket,
+                        Key: workItem.sourceFile.locator.key,
+                    }), { abortSignal });
 
-                        try {
-                            const commandOutput = await s3Client.send(new HeadObjectCommand({
-                                Bucket: workItem.sourceFile.locator.bucket,
-                                Key: workItem.sourceFile.locator.key,
-                            }));
-
-                            contentLength = commandOutput.ContentLength;
-                            contentType = commandOutput.ContentType;
-                            lastModified = commandOutput.LastModified;
-                        } catch (error) {
-                            this.logger?.error("Source AND Target are S3 - FAILED head request ");
-                            logError(this.logger, error);
-                        }
+                    sourceMethod = SourceMethod.S3Copy;
+                } catch (error) {
+                    if (abortSignal.aborted) {
+                        throw error;
                     }
 
-                    // for all other cases we'll need a URL as a source
-                    if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
-                        // first check if locator URL is publicly readable.
-                        try {
-                            const headResponse = await axios.head(workItem.sourceFile.locator.url, this.config.axiosConfig);
-                            sourceUrl = workItem.sourceFile.locator.url;
-                            contentLength = Number.parseInt(headResponse.headers["content-length"]);
-                            contentType = headResponse.headers["content-type"];
-                            lastModified = new Date(headResponse.headers["last-modified"]);
-                        } catch {}
-                    }
-
-                    if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
-                        // if not we'll create a signed URL
-                        if (isS3Locator(workItem.sourceFile.locator)) {
-                            this.logger?.debug("Creating Signed URL for source S3 Client ");
-                            // if we can't do S3 Copy we'll have to generate a signed URL
-                            const sourceS3Client = await this.config.getS3Client(workItem.sourceFile.locator.bucket);
-                            const command = new GetObjectCommand({
-                                Bucket: workItem.sourceFile.locator.bucket,
-                                Key: workItem.sourceFile.locator.key,
-                            });
-                            sourceUrl = await getSignedUrl(sourceS3Client, command, { expiresIn: 12 * 3600 });
-
-                            const commandOutput = await sourceS3Client.send(new HeadObjectCommand({
-                                Bucket: workItem.sourceFile.locator.bucket,
-                                Key: workItem.sourceFile.locator.key,
-                            }));
-
-                            contentLength = commandOutput.ContentLength;
-                            contentType = commandOutput.ContentType;
-                            lastModified = commandOutput.LastModified;
-                        } else if (isBlobStorageLocator(workItem.sourceFile.locator)) {
-                            const sourceContainerClient = await this.config.getContainerClient(workItem.sourceFile.locator.account, workItem.sourceFile.locator.container);
-                            const sourceBlobClient = sourceContainerClient.getBlockBlobClient(workItem.sourceFile.locator.blobName);
-                            sourceUrl = await sourceBlobClient.generateSasUrl({
-                                expiresOn: new Date(Date.now() + 12 * 3600000),
-                                permissions: BlobSASPermissions.from({ read: true })
-                            });
-
-                            const properties = await sourceBlobClient.getProperties();
-                            contentLength = properties.contentLength;
-                            contentType = properties.contentType;
-                            lastModified = properties.lastModified;
-                        }
-                    }
+                    this.logInfo(workItem, "Source AND Target are S3 - FAILED head request");
+                    logError(this.logger, error);
                 }
-
-                // Fetch object metadata if not already available
-                // (HEAD requests don't work on AWS v4 signed URLs, so we request the first byte)
-                if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
-                    try {
-                        const response = await axios.get(sourceUrl, {
-                            ...this.config.axiosConfig,
-                            headers: {
-                                ...this.config.axiosConfig?.headers,
-                                Range: "bytes=0-0"
-                            }
-                        });
-
-                        contentLength = parseInt(response.headers["content-range"].split("/")[1], 10);
-                        contentType = response.headers["content-type"];
-                        lastModified = new Date(response.headers["last-modified"]);
-                    } catch (error) {
-                        // 416 Range Not Satisfiable means empty file
-                        if ((error as AxiosError).status === 416) {
-                            contentLength = 0;
-                        }
-                    }
-                }
-
-                if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
-                    throw new McmaException("Failed to obtain content length");
-                }
-
-                // now we check if target already exists and has the same contentLength and a newer lastModified date
-                // this means it's most likely an exact copy.
-                let targetContentLength: number = undefined;
-                let targetContentType: string = undefined;
-                let targetLastModified: Date = undefined;
-                if (isS3Locator(workItem.destinationFile.locator)) {
-                    const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
-                    try {
-                        const headOutput = await s3Client.send(new HeadObjectCommand({
-                            Bucket: workItem.destinationFile.locator.bucket,
-                            Key: workItem.destinationFile.locator.key
-                        }));
-
-                        targetContentLength = headOutput.ContentLength;
-                        targetContentType = headOutput.ContentType;
-                        targetLastModified = headOutput.LastModified;
-                    } catch (error) {}
-                } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
-                    const containerClient = await this.config.getContainerClient(workItem.destinationFile.locator.account, workItem.destinationFile.locator.container);
-                    try {
-                        const blobClient = containerClient.getBlobClient(workItem.destinationFile.locator.blobName);
-                        const propertiesResponse = await blobClient.getProperties();
-
-                        targetContentLength = propertiesResponse.contentLength;
-                        targetContentType = propertiesResponse.contentType;
-                        targetLastModified = propertiesResponse.lastModified;
-                    } catch (error) {}
-                }
-
-                let skip = contentLength === targetContentLength && contentType === targetContentType && lastModified < targetLastModified;
-
-                resolve({ sourceUrl, contentLength, contentType, lastModified, skip });
-            } catch (error) {
-                reject(error);
             }
-        });
 
-        this.activeWorkItems.push({
-            workItem,
-            promise,
+            // for all other cases we'll need a URL as a source
+            if (!sourceMethod) {
+                // first check if locator URL is publicly readable.
+                try {
+                    await axios.head(workItem.sourceFile.locator.url, {
+                        ...this.config.axiosConfig,
+                        signal: abortSignal,
+                    });
+                    sourceMethod = SourceMethod.LocatorUrl;
+                } catch (error) {
+                    if (abortSignal.aborted) {
+                        throw error;
+                    }
+                }
+            }
+        }
+
+        if (!sourceMethod) {
+            // if not we'll create a signed URL
+            sourceMethod = SourceMethod.SignedUrl;
+        }
+
+        // now we check if target already exists and has the same contentLength and a newer lastModified date
+        // this means it's most likely an exact copy.
+        let targetContentLength: number | undefined;
+        let targetContentType: string | undefined;
+        let targetLastModified: Date | undefined;
+
+        try {
+            if (isS3Locator(workItem.destinationFile.locator)) {
+                const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
+
+                const headOutput = await s3Client.send(new HeadObjectCommand({
+                    Bucket: workItem.destinationFile.locator.bucket,
+                    Key: workItem.destinationFile.locator.key
+                }), { abortSignal });
+
+                targetContentLength = headOutput.ContentLength;
+                targetContentType = headOutput.ContentType;
+                targetLastModified = headOutput.LastModified;
+            } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
+                const containerClient = await this.config.getContainerClient(workItem.destinationFile.locator.account, workItem.destinationFile.locator.container);
+                const blobClient = containerClient.getBlobClient(workItem.destinationFile.locator.blobName);
+                const propertiesResponse = await blobClient.getProperties({ abortSignal });
+
+                targetContentLength = propertiesResponse.contentLength;
+                targetContentType = propertiesResponse.contentType;
+                targetLastModified = propertiesResponse.lastModified;
+            }
+        } catch (error: any) {
+            if (abortSignal.aborted) {
+                throw error;
+            }
+            const msg = error instanceof Error ? error.message : String(error);
+
+            const status = error?.$metadata?.httpStatusCode ?? error?.statusCode; // fetching status code from AWS and Azure error
+
+            if (status !== 404) {
+                this.logInfo(workItem, `Failed reading target metadata: ${msg}`);
+                logError(this.logger, error);
+            }
+        }
+
+        // Normalize content-types for comparison
+        const normalizeType = (t?: string) => t ? t.split(";")[0].trim().toLowerCase() : undefined;
+        const srcType = normalizeType(workItem.contentType);
+        const dstType = normalizeType(targetContentType);
+
+        // Compare lengths safely (only if both are safe integers)
+        const srcLenOk = Number.isSafeInteger(workItem.contentLength);
+        const dstLenOk = Number.isSafeInteger(targetContentLength);
+
+        const lengthsEqual = srcLenOk && dstLenOk && workItem.contentLength === targetContentLength;
+        const typesEqual = srcType === dstType;
+
+        // Compare lastModified: skip only if target is same or newer (allow undefined to be false)
+        const targetIsSameOrNewer = (workItem.lastModified && targetLastModified)
+            ? targetLastModified.getTime() >= workItem.lastModified.getTime()
+            : false;
+
+        const skip = lengthsEqual && typesEqual && targetIsSameOrNewer;
+
+        return { sourceMethod, skip };
+    }
+
+    /**
+     * This function gets the result of work item process file and creates workItems MultipartStart or Single based on file size
+     */
+    private finishWorkItemProcessFile(workItem: WorkItem, result: { sourceMethod: SourceMethod, skip: boolean }) {
+        if (!Number.isSafeInteger(workItem.contentLength) || workItem.contentLength < 0) {
+            throw new McmaException("Invalid contentLength for finishWorkItemProcessFile work item");
+        }
+
+        if (result.skip) {
+            this.logInfo(workItem, "File already present on target location. Skipping");
+            this.filesTotal--;
+            this.bytesTotal -= workItem.contentLength;
+            return;
+        }
+
+        this.queueWorkItem({
+            ...workItem,
+            type: (workItem.contentLength > this.multipartSize) ? WorkType.MultipartStart : WorkType.Single,
+            sourceMethod: result.sourceMethod,
+            retries: 0,
         });
     }
 
-    finishWorkItemPrepare(activeWorkItem: ActiveWorkItem) {
-        this.logger?.debug(`FileCopier.finishWorkItemPrepare() - ${activeWorkItem.workItem.destinationFile.locator.url}`);
+    /**
+     * Single work item copies a file in one go (no multipart)
+     */
+    private async processWorkItemSingle(workItem: WorkItem, abortSignal: AbortSignal) {
+        if (workItem.sourceMethod === SourceMethod.S3Copy) {
+            const sourceLocator = workItem.sourceFile.locator as S3Locator;
+            const destinationLocator = workItem.destinationFile.locator as S3Locator;
 
-        if (activeWorkItem.error) {
-            logError(this.logger, activeWorkItem.error);
-            if (activeWorkItem.workItem.retries++ < 2) {
-                this.queuedWorkItems.push(activeWorkItem.workItem);
-            } else {
-                throw activeWorkItem.error;
-            }
+            const s3Client = await this.config.getS3Client(destinationLocator.bucket, destinationLocator.region);
+            await s3Client.send(new CopyObjectCommand({
+                Bucket: destinationLocator.bucket,
+                Key: destinationLocator.key,
+                CopySource: `${sourceLocator.bucket}/${encodeURIComponent(sourceLocator.key)}`,
+                StorageClass: workItem.destinationFile.storageClass,
+            }), { abortSignal });
         } else {
-            const { sourceUrl, contentLength, contentType, lastModified, skip } = activeWorkItem.result;
-
-            if (skip) {
-                this.logger?.debug(`${activeWorkItem.workItem.destinationFile.locator.url} already present on target location`);
-                return;
+            let sourceUrl = await this.obtainSourceUrlFromWorkItem(workItem);
+            if (!sourceUrl) {
+                throw new McmaException("Failed to resolve source url for MultipartSegment");
             }
 
-            this.filesTotal++;
-            this.bytesTotal += contentLength;
+            if (isS3Locator(workItem.destinationFile.locator)) {
+                const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
 
-            const workItem = Object.assign({}, activeWorkItem.workItem, {
-                type: (contentLength > this.multipartSize) ? WorkType.MultipartStart : WorkType.Single,
-                retries: 0,
-                sourceUrl,
-                contentLength,
-                contentType,
-                lastModified,
-            });
-            this.queuedWorkItems.push(workItem);
+                const response = await axios.get(sourceUrl, {
+                    ...this.config.axiosConfig,
+                    responseType: "stream",
+                    decompress: false,
+                    signal: abortSignal,
+                });
+                if (response.status < 200 || response.status >= 300) {
+                    const msg = `GET ${sourceUrl} returned ${response.status}`;
+                    this.logInfo(workItem, msg);
+                    throw new McmaException(msg);
+                }
+                if (!response.data) {
+                    const msg = `GET ${sourceUrl} returned no response.data`;
+                    this.logInfo(workItem, msg);
+                    throw new McmaException(msg);
+                }
+
+                const contentLengthHeader = response.headers["content-length"];
+                if (contentLengthHeader !== undefined) {
+                    const n = Number(contentLengthHeader);
+                    if (!Number.isFinite(n) || n !== workItem.contentLength) {
+                        const msg = `Content-Length mismatch. Expected ${workItem.contentLength}, got ${contentLengthHeader}`;
+                        this.logInfo(workItem, msg);
+                        throw new McmaException(msg);
+                    }
+                }
+
+                await s3Client.send(new PutObjectCommand({
+                    Bucket: workItem.destinationFile.locator.bucket,
+                    Key: workItem.destinationFile.locator.key,
+                    Body: response.data,
+                    ContentType: workItem.contentType,
+                    StorageClass: workItem.destinationFile.storageClass,
+                    ContentLength: workItem.contentLength,
+                }), { abortSignal });
+            } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
+                const containerClient = await this.config.getContainerClient(workItem.destinationFile.locator.account, workItem.destinationFile.locator.container);
+                const blobClient = containerClient.getBlockBlobClient(workItem.destinationFile.locator.blobName);
+
+                const poller = await blobClient.beginCopyFromURL(sourceUrl, { abortSignal });
+                while (true) {
+                    if (abortSignal.aborted) {
+                        throw new McmaException("Azure copy operation aborted");
+                    }
+
+                    await poller.poll({ abortSignal });
+                    const state = poller.getOperationState();
+
+                    if (state.isCompleted) {
+                        if (state.error) {
+                            throw new McmaException(`Azure copy failed: ${state.error.message ?? "Unknown error"}`);
+                        }
+
+                        break;
+                    }
+
+                    await Utils.sleep(1000);
+                }
+
+                const props = await blobClient.getProperties({ abortSignal });
+                const copyStatus = props.copyStatus;
+
+                if (copyStatus && copyStatus !== "success") {
+                    throw new McmaException(`Azure copy did not succeed. copyStatus=${copyStatus}`);
+                }
+
+                if (workItem.contentType) {
+                    await blobClient.setHTTPHeaders({ blobContentType: workItem.contentType }, { abortSignal });
+                }
+            } else {
+                throw new McmaException("Unexpected locator type " + workItem.destinationFile.locator["@type"]);
+            }
         }
     }
 
-    processWorkItemSingle(workItem: WorkItem) {
-        this.logger?.debug(`FileCopier.processWorkItemSingle() - ${workItem.destinationFile.locator.url}`);
-        const promise = new Promise<void>(async (resolve, reject) => {
-            try {
-                if (isS3Locator(workItem.destinationFile.locator)) {
-                    const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
-                    if (!workItem.sourceUrl && isS3Locator(workItem.sourceFile.locator)) {
-                        await s3Client.send(new CopyObjectCommand({
-                            Bucket: workItem.destinationFile.locator.bucket,
-                            Key: workItem.destinationFile.locator.key,
-                            CopySource: encodeURIComponent(workItem.sourceFile.locator.bucket + "/" + workItem.sourceFile.locator.key),
-                            ContentType: workItem.contentType,
-                            StorageClass: workItem.destinationFile.storageClass,
-                        }));
-                    } else {
-                        const response = await axios.get(workItem.sourceUrl, {
-                            ...this.config.axiosConfig,
-                            responseType: "stream",
-                        });
-
-                        await s3Client.send(new PutObjectCommand({
-                            Bucket: workItem.destinationFile.locator.bucket,
-                            Key: workItem.destinationFile.locator.key,
-                            Body: response.data,
-                            ContentType: workItem.contentType,
-                            StorageClass: workItem.destinationFile.storageClass,
-                            ContentLength: workItem.contentLength,
-                        }));
-                    }
-                } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
-                    const containerClient = await this.config.getContainerClient(workItem.destinationFile.locator.account, workItem.destinationFile.locator.container);
-                    const blobClient = containerClient.getBlockBlobClient(workItem.destinationFile.locator.blobName);
-                    const response = await blobClient.beginCopyFromURL(workItem.sourceUrl);
-                    await response.pollUntilDone();
-                }
-            } catch (error) {
-                reject(error);
-            }
-            resolve();
-        });
-
-        this.activeWorkItems.push({
-            workItem,
-            promise,
-        });
-    }
-
-    finishWorkItemSingle(activeWorkItem: ActiveWorkItem) {
-        this.logger?.debug(`FileCopier.finishWorkItemSingle() - ${activeWorkItem.workItem.destinationFile.locator.url}`);
-        if (activeWorkItem.error && activeWorkItem.error.code !== "PendingCopyOperation") { // if we see a pending copy operation error, we assume there is another process that tries to copy the exact same file, and we ignore the error
-            logError(this.logger, activeWorkItem.error);
-            if (activeWorkItem.workItem.retries++ < 2) {
-                this.queuedWorkItems.push(activeWorkItem.workItem);
-            } else {
-                throw activeWorkItem.error;
-            }
-        } else {
-            this.filesCopied++;
-            this.bytesCopied += activeWorkItem.workItem.contentLength;
+    /**
+     * Finish single work item registers files and bytes copied
+     */
+    private finishWorkItemSingle(workItem: WorkItem) {
+        if (!Number.isSafeInteger(workItem.contentLength) || workItem.contentLength < 0) {
+            throw new McmaException("Invalid contentLength for finishWorkItemSingle work item");
         }
+
+        this.filesCopied++;
+        this.bytesCopied += workItem.contentLength;
     }
 
-    processWorkItemMultipartStart(workItem: WorkItem) {
-        this.logger?.debug(`FileCopier.processWorkItemMultipartStart() - ${workItem.destinationFile.locator.url}`);
+    /**
+     * The goal of a MultipartStart work item is to start a multipart upload in case the destination is AWS S3
+     */
+    private async processWorkItemMultipartStart(workItem: WorkItem, abortSignal: AbortSignal) {
+        let s3UploadId: string | undefined;
+        let blockIdPrefix: string | undefined;
 
-        const promise = new Promise<{ uploadId?: string }>(async (resolve, reject) => {
-            let uploadId: string = undefined;
-
-            try {
-                if (isS3Locator(workItem.destinationFile.locator)) {
-                    const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
-                    const commandOutput = await s3Client.send(new CreateMultipartUploadCommand({
-                        Bucket: workItem.destinationFile.locator.bucket,
-                        Key: workItem.destinationFile.locator.key,
-                        ContentType: workItem.contentType,
-                        StorageClass: workItem.destinationFile.storageClass,
-                    }));
-                    uploadId = commandOutput.UploadId;
-                }
-            } catch (error) {
-                reject(error);
+        if (workItem.multipartData?.s3UploadId) {
+            s3UploadId = workItem.multipartData?.s3UploadId;
+        } else if (isS3Locator(workItem.destinationFile.locator)) {
+            const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
+            const commandOutput = await s3Client.send(new CreateMultipartUploadCommand({
+                Bucket: workItem.destinationFile.locator.bucket,
+                Key: workItem.destinationFile.locator.key,
+                ContentType: workItem.contentType,
+                StorageClass: workItem.destinationFile.storageClass,
+            }), { abortSignal });
+            s3UploadId = commandOutput.UploadId;
+            if (!s3UploadId) {
+                throw new McmaException(`CreateMultipartUploadCommand returned uploadId: ${s3UploadId}`);
             }
-            resolve({ uploadId });
-        });
+        } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
+            blockIdPrefix = randomBytes(16).toString("base64"); // 16 bytes <= 64 byte limit after composition
+        }
 
-        this.activeWorkItems.push({
-            workItem,
-            promise,
-        });
+        return { s3UploadId, blockIdPrefix };
     }
 
-    finishWorkItemMultipartStart(activeWorkItem: ActiveWorkItem) {
-        this.logger?.debug(`FileCopier.finishWorkItemMultipartStart() - ${activeWorkItem.workItem.destinationFile.locator.url}`);
-        if (activeWorkItem.error) {
-            logError(this.logger, activeWorkItem.error);
-            if (activeWorkItem.workItem.retries++ < 2) {
-                this.queuedWorkItems.push(activeWorkItem.workItem);
-            } else {
-                throw activeWorkItem.error;
-            }
-        } else {
-            const { uploadId } = activeWorkItem.result;
-            const contentLength = activeWorkItem.workItem.contentLength;
 
-            let maxNumberParts: number = undefined;
-            let multipartSize = MULTIPART_SIZE;
-            if (isS3Locator(activeWorkItem.workItem.destinationFile.locator)) {
+    /**
+     * The goal of finish Multipart Start is to generate the next segments for doing the multipart upload. In case more segments are required, it will
+     * create a new multipart start work item with indications for the remainder to be generated. When all segment work items are generated it'll generate
+     * a Multipart complete work item.
+     */
+    private finishWorkItemMultipartStart(workItem: WorkItem, result: { s3UploadId?: string, blockIdPrefix?: string }) {
+        if (!Number.isSafeInteger(workItem.contentLength) || workItem.contentLength < 0) {
+            throw new McmaException("Invalid contentLength for finishWorkItemSingle work item");
+        }
+
+        const s3UploadId = result.s3UploadId;
+        const blockIdPrefix = result.blockIdPrefix;
+        const contentLength = workItem.contentLength;
+
+        let multipartSize = workItem.multipartData?.multipartSize;
+        if (!multipartSize) {
+            multipartSize = this.multipartSize;
+            let maxNumberParts: number;
+            if (isS3Locator(workItem.destinationFile.locator)) {
                 maxNumberParts = 10000;
-            } else if (isBlobStorageLocator(activeWorkItem.workItem.destinationFile.locator)) {
+            } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
                 maxNumberParts = 50000;
             } else {
-                throw new McmaException(`Unsupported locator type '${activeWorkItem.workItem.destinationFile.locator["@type"]}'`);
+                throw new McmaException(`Unsupported locator type '${workItem.destinationFile.locator["@type"]}'`);
             }
 
             while (multipartSize * maxNumberParts < contentLength) {
                 multipartSize *= 2;
             }
+        }
 
-            const segments: MultipartSegment[] = [];
+        const newSegments: MultipartSegment[] = [];
 
-            let bytePosition = 0;
-            for (let partNumber = 1; bytePosition < contentLength; partNumber++) {
-                const start = bytePosition;
-                const end = bytePosition + multipartSize - 1 >= contentLength ? contentLength - 1 : bytePosition + multipartSize - 1;
-                const length = end - start + 1;
+        let bytePosition = workItem.multipartData?.nextBytePosition ?? 0;
+        let partNumber = workItem.multipartData?.nextPartNumber ?? 1;
+        while (bytePosition < contentLength) {
+            const start = bytePosition;
+            const end = bytePosition + multipartSize - 1 >= contentLength ? contentLength - 1 : bytePosition + multipartSize - 1;
+            const length = end - start + 1;
 
-                const segment: MultipartSegment = {
-                    partNumber,
-                    start,
-                    end,
-                    length,
-                };
+            const segment: MultipartSegment = {
+                partNumber,
+                start,
+                end,
+                length,
+            };
 
-                const segmentWorkItem: WorkItem = Object.assign({}, activeWorkItem.workItem, {
-                    type: WorkType.MultipartSegment,
-                    retries: 0,
-                    multipartData: {
-                        uploadId,
-                        segment,
-                    }
+            const segmentWorkItem: WorkItem = {
+                ...workItem,
+                type: WorkType.MultipartSegment,
+                multipartData: {
+                    s3UploadId,
+                    blockIdPrefix,
+                    segment,
+                },
+                retries: 0,
+            };
+
+            this.queueWorkItem(segmentWorkItem);
+
+            bytePosition += length;
+            partNumber++;
+
+            newSegments.push(segment);
+            if (newSegments.length >= this.multipartSegmentBatchSize) {
+                break;
+            }
+        }
+
+        const prior = workItem.multipartData?.segments ?? [];
+        const segments = [...prior, ...newSegments];
+
+        let multipartWorkItem: WorkItem;
+
+        // Still need to generate more segment
+        if (bytePosition < contentLength) {
+            multipartWorkItem = {
+                ...workItem,
+                multipartData: {
+                    nextPartNumber: partNumber,
+                    nextBytePosition: bytePosition,
+                    multipartSize,
+                    s3UploadId,
+                    blockIdPrefix,
+                    segments,
+                },
+                retries: 0,
+            };
+        } else {
+            // Done generating segments
+            multipartWorkItem = {
+                ...workItem,
+                type: WorkType.MultipartComplete,
+                multipartData: {
+                    s3UploadId,
+                    blockIdPrefix,
+                    segments,
+                },
+                retries: 0,
+            };
+        }
+
+        this.queueWorkItem(multipartWorkItem);
+    }
+
+    private async obtainSourceUrlFromWorkItem(workItem: WorkItem) {
+        let sourceUrl: string;
+
+        switch (workItem.sourceMethod) {
+            case SourceMethod.EgressUrl:
+                sourceUrl = workItem.sourceFile.egressUrl;
+                break;
+            case SourceMethod.LocatorUrl:
+                sourceUrl = workItem.sourceFile.locator.url;
+                break;
+            case SourceMethod.SignedUrl:
+                if (isS3Locator(workItem.sourceFile.locator)) {
+                    const sourceS3Client = await this.config.getS3Client(workItem.sourceFile.locator.bucket, workItem.sourceFile.locator.region);
+                    const command = new GetObjectCommand({
+                        Bucket: workItem.sourceFile.locator.bucket,
+                        Key: workItem.sourceFile.locator.key,
+                    });
+                    sourceUrl = await getSignedUrl(sourceS3Client, command, { expiresIn: 12 * 3600 });
+                } else if (isBlobStorageLocator(workItem.sourceFile.locator)) {
+                    const sourceContainerClient = await this.config.getContainerClient(workItem.sourceFile.locator.account, workItem.sourceFile.locator.container);
+                    const sourceBlobClient = sourceContainerClient.getBlockBlobClient(workItem.sourceFile.locator.blobName);
+                    sourceUrl = await sourceBlobClient.generateSasUrl({
+                        expiresOn: new Date(Date.now() + 12 * 3600000),
+                        permissions: BlobSASPermissions.from({ read: true })
+                    });
+                } else {
+                    throw new McmaException("Unexpected locator type " + workItem.sourceFile.locator["@type"]);
+                }
+                break;
+            default:
+                throw new McmaException("Unexpected source method " + workItem.sourceMethod);
+        }
+        return sourceUrl;
+    }
+
+    private async processWorkItemMultipartSegment(workItem: WorkItem, abortSignal: AbortSignal) {
+        let etag: string | undefined;
+        let blockId: string | undefined;
+
+        if (workItem.sourceMethod === SourceMethod.S3Copy) {
+            const sourceLocator = workItem.sourceFile.locator as S3Locator;
+            const destinationLocator = workItem.destinationFile.locator as S3Locator;
+
+            const s3Client = await this.config.getS3Client(destinationLocator.bucket, destinationLocator.region);
+
+            const commandOutput = await s3Client.send(new UploadPartCopyCommand({
+                Bucket: destinationLocator.bucket,
+                Key: destinationLocator.key,
+                CopySource: `${sourceLocator.bucket}/${encodeURIComponent(sourceLocator.key)}`,
+                CopySourceRange: `bytes=${workItem.multipartData.segment.start}-${workItem.multipartData.segment.end}`,
+                UploadId: workItem.multipartData.s3UploadId,
+                PartNumber: workItem.multipartData.segment.partNumber,
+            }), { abortSignal });
+
+            const result = commandOutput.CopyPartResult;
+            if (!result?.ETag) {
+                throw new McmaException("UploadPartCopyCommand did not return ETag");
+            }
+
+            etag = result.ETag;
+        } else {
+            let sourceUrl = await this.obtainSourceUrlFromWorkItem(workItem);
+            if (!sourceUrl) {
+                throw new McmaException("Failed to resolve source url for MultipartSegment");
+            }
+
+            if (isS3Locator(workItem.destinationFile.locator)) {
+                const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
+
+                const start = workItem.multipartData.segment.start;
+                const end = workItem.multipartData.segment.end;
+
+                const response = await axios.get(sourceUrl, {
+                    ...this.config.axiosConfig,
+                    responseType: "stream",
+                    decompress: false,
+                    headers: {
+                        ...(this.config.axiosConfig?.headers ?? {}),
+                        Range: `bytes=${start}-${end}`,
+                    },
+                    signal: abortSignal,
                 });
 
-                segments.push(segment);
-
-                bytePosition += length;
-
-                this.queuedWorkItems.push(segmentWorkItem);
-            }
-
-            const completeWorkItem: WorkItem = Object.assign({}, activeWorkItem.workItem, {
-                type: WorkType.MultipartComplete,
-                retries: 0,
-                contentType: activeWorkItem.workItem.contentType,
-                multipartData: {
-                    uploadId,
-                    segments,
+                if (response.status !== 206) {
+                    const msg = `Expected 206 Partial Content but received ${response.status}`;
+                    this.logInfo(workItem, msg);
+                    throw new McmaException(msg);
                 }
-            });
 
-            this.queuedWorkItems.push(completeWorkItem);
-        }
-    }
+                const contentRange = response.headers["content-range"];
+                if (!contentRange) {
+                    const msg = "Missing Content-Range header in partial response";
+                    this.logInfo(workItem, msg);
+                    throw new McmaException(msg);
+                }
 
-    processWorkItemMultipartSegment(workItem: WorkItem) {
-        this.logger?.debug(`FileCopier.processWorkItemMultipartSegment() - ${workItem.destinationFile.locator.url} - ${workItem.multipartData?.segment?.partNumber}`);
+                // Example Content-Range: "bytes 0-1048575/8388608"
+                const contentRangeMatch = /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(contentRange);
+                if (!contentRangeMatch) {
+                    const msg = `Unexpected Content-Range '${contentRange}'`;
+                    this.logInfo(workItem, msg);
+                    throw new McmaException(msg);
+                }
 
-        const promise = new Promise<{ etag?: string, blockId?: string }>(async (resolve, reject) => {
-            let etag: string = undefined;
-            let blockId: string = undefined;
+                const rangeStart = Number(contentRangeMatch[1]);
+                const rangeEnd = Number(contentRangeMatch[2]);
+                if (!Number.isFinite(rangeStart) || !Number.isFinite(rangeEnd) || rangeStart !== start || rangeEnd !== end) {
+                    const msg = `Unexpected Content-Range '${contentRange}', expected start ${start} and end <= ${end}`;
+                    this.logInfo(workItem, msg);
+                    throw new McmaException(msg);
+                }
 
-            try {
-                if (isS3Locator(workItem.destinationFile.locator)) {
-                    const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
-
-                    if (!workItem.sourceUrl && isS3Locator(workItem.sourceFile.locator)) {
-                        const commandOutput = await s3Client.send(new UploadPartCopyCommand({
-                            Bucket: workItem.destinationFile.locator.bucket,
-                            Key: workItem.destinationFile.locator.key,
-                            CopySource: encodeURIComponent(workItem.sourceFile.locator.bucket + "/" + workItem.sourceFile.locator.key),
-                            CopySourceRange: "bytes=" + workItem.multipartData.segment.start + "-" + workItem.multipartData.segment.end,
-                            UploadId: workItem.multipartData.uploadId,
-                            PartNumber: workItem.multipartData.segment.partNumber,
-                        }));
-
-                        etag = commandOutput.CopyPartResult.ETag;
-                    } else {
-                        const response = await axios.get(workItem.sourceUrl, {
-                            ...this.config.axiosConfig,
-                            responseType: "stream",
-                            headers: {
-                                ...this.config.axiosConfig?.headers,
-                                Range: `bytes=${workItem.multipartData.segment.start}-${workItem.multipartData.segment.end}`
-                            }
-                        });
-
-                        const commandOutput = await s3Client.send(new UploadPartCommand({
-                            Bucket: workItem.destinationFile.locator.bucket,
-                            Key: workItem.destinationFile.locator.key,
-                            Body: response.data,
-                            UploadId: workItem.multipartData.uploadId,
-                            PartNumber: workItem.multipartData.segment.partNumber,
-                            ContentLength: workItem.multipartData.segment.length,
-                        }));
-
-                        etag = commandOutput.ETag;
+                const contentLengthHeader = response.headers["content-length"];
+                if (contentLengthHeader !== undefined) {
+                    const n = Number(contentLengthHeader);
+                    if (!Number.isFinite(n) || n !== workItem.multipartData.segment.length) {
+                        const msg = `Content-Length mismatch. Expected ${workItem.multipartData.segment.length}, got ${contentLengthHeader}`;
+                        this.logInfo(workItem, msg);
+                        throw new McmaException(msg);
                     }
-                } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
-                    const containerClient = await this.config.getContainerClient(workItem.destinationFile.locator.account, workItem.destinationFile.locator.container);
-                    const blobClient = containerClient.getBlockBlobClient(workItem.destinationFile.locator.blobName);
-
-                    blockId = randomBytes(64).toString("base64");
-
-                    await blobClient.stageBlockFromURL(
-                        blockId,
-                        workItem.sourceUrl,
-                        workItem.multipartData.segment.start,
-                        workItem.multipartData.segment.length,
-                    );
-                } else {
-                    throw new McmaException(`Unsupported locator type '${workItem.destinationFile.locator["@type"]}'`);
                 }
-            } catch (error) {
-                reject(error);
-            }
-            resolve({ etag, blockId });
-        });
+                if (response.status < 200 || response.status >= 300) {
+                    const msg = `GET ${sourceUrl} returned ${response.status}`;
+                    this.logInfo(workItem, msg);
+                    throw new McmaException(msg);
+                }
+                if (!response.data) {
+                    const msg = `GET ${sourceUrl} returned no response.data`;
+                    this.logInfo(workItem, msg);
+                    throw new McmaException(msg);
+                }
 
-        this.activeWorkItems.push({
-            workItem,
-            promise,
-        });
+                const commandOutput = await s3Client.send(new UploadPartCommand({
+                    Bucket: workItem.destinationFile.locator.bucket,
+                    Key: workItem.destinationFile.locator.key,
+                    Body: response.data,
+                    UploadId: workItem.multipartData.s3UploadId,
+                    PartNumber: workItem.multipartData.segment.partNumber,
+                    ContentLength: workItem.multipartData.segment.length,
+                }), { abortSignal });
+
+                const etagValue = commandOutput.ETag;
+                if (!etagValue) {
+                    throw new McmaException("UploadPartCommand did not return ETag");
+                }
+
+                etag = etagValue;
+            } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
+                const containerClient = await this.config.getContainerClient(workItem.destinationFile.locator.account, workItem.destinationFile.locator.container);
+                const blobClient = containerClient.getBlockBlobClient(workItem.destinationFile.locator.blobName);
+
+                const prefix = workItem.multipartData?.blockIdPrefix;
+                if (!prefix) {
+                    throw new McmaException("Missing blockIdPrefix for Azure multipart segment");
+                }
+
+                const prefixBytes = Buffer.from(prefix, "base64");
+
+                const partNumber = workItem.multipartData.segment.partNumber;
+                const partBytes = Buffer.alloc(4);
+                partBytes.writeUInt32BE(partNumber);
+
+                blockId = Buffer.concat([prefixBytes, partBytes]).toString("base64");
+
+                await blobClient.stageBlockFromURL(
+                    blockId,
+                    sourceUrl,
+                    workItem.multipartData.segment.start,
+                    workItem.multipartData.segment.length,
+                    { abortSignal }
+                );
+            } else {
+                throw new McmaException("Unexpected locator type " + workItem.destinationFile.locator["@type"]);
+            }
+        }
+
+        return { etag, blockId };
     }
 
-    finishWorkItemMultipartSegment(activeWorkItem: ActiveWorkItem) {
-        this.logger?.debug(`FileCopier.finishWorkItemMultipartSegment() - ${activeWorkItem.workItem.destinationFile.locator.url} - ${activeWorkItem.workItem.multipartData?.segment?.partNumber}`);
-        if (activeWorkItem.error) {
-            logError(this.logger, activeWorkItem.error);
-            if (activeWorkItem.workItem.retries++ < 2) {
-                this.queuedWorkItems.push(activeWorkItem.workItem);
-            } else {
-                throw activeWorkItem.error;
+    private finishWorkItemMultipartSegment(workItem: WorkItem, result: { etag: string, blockId: string }) {
+        if (isS3Locator(workItem.destinationFile.locator)) {
+            workItem.multipartData.segment.etag = result.etag;
+        } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
+            workItem.multipartData.segment.blockId = result.blockId;
+        } else {
+            throw new McmaException(`Unsupported locator type '${workItem.destinationFile.locator["@type"]}'`);
+        }
+
+        this.bytesCopied += workItem.multipartData.segment.length;
+    }
+
+    private async processWorkItemMultipartComplete(workItem: WorkItem, abortSignal: AbortSignal) {
+        let completed: boolean;
+
+        if (isS3Locator(workItem.destinationFile.locator)) {
+            completed = !workItem.multipartData.segments.some(s => !s.etag);
+            if (completed) {
+                const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
+
+                await s3Client.send(new CompleteMultipartUploadCommand({
+                    Bucket: workItem.destinationFile.locator.bucket,
+                    Key: workItem.destinationFile.locator.key,
+                    UploadId: workItem.multipartData.s3UploadId,
+                    MultipartUpload: {
+                        Parts: workItem.multipartData.segments.map(segment => {
+                            return {
+                                ETag: segment.etag,
+                                PartNumber: segment.partNumber,
+                            };
+                        }).sort((a, b) => a.PartNumber - b.PartNumber)
+                    }
+                }), { abortSignal });
+            }
+        } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
+            completed = !workItem.multipartData.segments.some(s => !s.blockId);
+            if (completed) {
+                const containerClient = await this.config.getContainerClient(workItem.destinationFile.locator.account, workItem.destinationFile.locator.container);
+                const blobClient = containerClient.getBlockBlobClient(workItem.destinationFile.locator.blobName);
+                const blockIds = [...workItem.multipartData.segments].sort((a, b) => a.partNumber - b.partNumber).map(s => s.blockId);
+                await blobClient.commitBlockList(blockIds, { blobHTTPHeaders: { blobContentType: workItem.contentType }, abortSignal });
             }
         } else {
-            if (isS3Locator(activeWorkItem.workItem.destinationFile.locator)) {
-                activeWorkItem.workItem.multipartData.segment.etag = activeWorkItem.result.etag;
-            } else if (isBlobStorageLocator(activeWorkItem.workItem.destinationFile.locator)) {
-                activeWorkItem.workItem.multipartData.segment.blockId = activeWorkItem.result.blockId;
-            } else {
-                throw new McmaException(`Unsupported locator type '${activeWorkItem.workItem.destinationFile.locator["@type"]}'`);
-            }
+            throw new McmaException(`Unsupported locator type '${workItem.destinationFile.locator["@type"]}'`);
+        }
 
-            this.bytesCopied += activeWorkItem.workItem.multipartData.segment.length;
+        return { completed };
+    }
+
+    private finishWorkItemMultipartComplete(workItem: WorkItem, result: { completed: boolean }) {
+        if (result.completed) {
+            this.filesCopied++;
+        } else {
+            const key = workItem.destinationFile.locator.url;
+
+            if (!this.delayedMultipartCompletes.has(key)) {
+                this.delayedMultipartCompletes.add(key);
+
+                setTimeout(() => {
+                    this.delayedMultipartCompletes.delete(key);
+                    this.queueWorkItem(workItem);
+                }, 1000);
+            }
+        }
+    }
+}
+
+async function buildDestinationFile(sourceFolder: SourceFile, sourceFile: SourceFile, destinationFolder: DestinationFile): Promise<DestinationFile> {
+    if (isS3Locator(sourceFolder.locator) && isS3Locator(sourceFile.locator)) {
+        if (isS3Locator(destinationFolder.locator)) {
+            return {
+                locator: new S3Locator({ url: await buildS3Url(destinationFolder.locator.bucket, destinationFolder.locator.key + sourceFile.locator.key.substring(sourceFolder.locator.key.length), destinationFolder.locator.region) }),
+                storageClass: destinationFolder.storageClass,
+            };
+        } else if (isBlobStorageLocator(destinationFolder.locator)) {
+            return {
+                locator: new BlobStorageLocator({ url: buildBlobStorageUrl(destinationFolder.locator.account, destinationFolder.locator.container, destinationFolder.locator.blobName + sourceFile.locator.key.substring(sourceFolder.locator.key.length)) })
+            };
+        }
+    } else if (isBlobStorageLocator(sourceFolder.locator) && isBlobStorageLocator(sourceFile.locator)) {
+        if (isS3Locator(destinationFolder.locator)) {
+            return {
+                locator: new S3Locator({ url: await buildS3Url(destinationFolder.locator.bucket, destinationFolder.locator.key + sourceFile.locator.blobName.substring(sourceFolder.locator.blobName.length), destinationFolder.locator.region) }),
+                storageClass: destinationFolder.storageClass,
+            };
+        } else if (isBlobStorageLocator(destinationFolder.locator)) {
+            return {
+                locator: new BlobStorageLocator({ url: buildBlobStorageUrl(destinationFolder.locator.account, destinationFolder.locator.container, destinationFolder.locator.blobName + sourceFile.locator.blobName.substring(sourceFolder.locator.blobName.length)) })
+            };
         }
     }
 
-    processWorkItemMultipartComplete(workItem: WorkItem) {
-        this.logger?.debug(`FileCopier.processWorkItemMultipartComplete() - ${workItem.destinationFile.locator.url}`);
+    throw new McmaException("FileCopier:buildDestinationFile - invalid input");
+}
 
-        const promise = new Promise<void>(async (resolve, reject) => {
-            try {
-                const hasUnfinishedSegment = !!workItem.multipartData.segments.find(s => !s.etag && !s.blockId);
+function getPriority(t: WorkType) {
+    return WorkTypePriority[t] ?? Number.MAX_SAFE_INTEGER;
+}
 
-                if (hasUnfinishedSegment) {
-                    this.delayedWorkItems.push(workItem);
-                    setTimeout(() => {
-                        const idx = this.delayedWorkItems.indexOf(workItem);
-                        this.delayedWorkItems.splice(idx, 1);
-                        this.queuedWorkItems.unshift(workItem);
-                    }, 1000);
-                } else if (isS3Locator(workItem.destinationFile.locator)) {
-                    const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
-
-                    await s3Client.send(
-                        new CompleteMultipartUploadCommand({
-                            Bucket: workItem.destinationFile.locator.bucket,
-                            Key: workItem.destinationFile.locator.key,
-                            UploadId: workItem.multipartData.uploadId,
-                            MultipartUpload: {
-                                Parts: workItem.multipartData.segments.map(segment => {
-                                    return {
-                                        ETag: segment.etag,
-                                        PartNumber: segment.partNumber,
-                                    };
-                                }).sort((a, b) => a.PartNumber - b.PartNumber)
-                            }
-                        })
-                    );
-                } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
-                    const containerClient = await this.config.getContainerClient(workItem.destinationFile.locator.account, workItem.destinationFile.locator.container);
-                    const blobClient = containerClient.getBlockBlobClient(workItem.destinationFile.locator.blobName);
-                    const blockIds = workItem.multipartData.segments.sort((a, b) => a.partNumber - b.partNumber).map(s => s.blockId);
-                    await blobClient.commitBlockList(blockIds, { blobHTTPHeaders: { blobContentType: workItem.contentType } });
-                } else {
-                    throw new McmaException(`Unsupported locator type '${workItem.destinationFile.locator["@type"]}'`);
-                }
-            } catch (error) {
-                reject(error);
-            }
-            resolve();
-        });
-
-        this.activeWorkItems.push({
-            workItem,
-            promise,
-        });
-    }
-
-    finishWorkItemMultipartComplete(activeWorkItem: ActiveWorkItem) {
-        this.logger?.debug(`FileCopier.finishWorkItemMultipartComplete() - ${activeWorkItem.workItem.destinationFile.locator.url}`);
-
-        if (activeWorkItem.error && activeWorkItem.error.code !== "PendingCopyOperation") { // if we see a pending copy operation error, we assume there is another process that tries to copy the exact same file, and we ignore the error
-            logError(this.logger, activeWorkItem.error);
-            if (activeWorkItem.workItem.retries++ < 2) {
-                this.queuedWorkItems.push(activeWorkItem.workItem);
-            } else {
-                throw activeWorkItem.error;
-            }
+function upperBoundByPriority(array: WorkItem[], value: WorkItem): number {
+    const p = getPriority(value.type);
+    let low = 0, high = array.length;
+    while (low < high) {
+        const mid = (low + high) >>> 1;
+        if (getPriority(array[mid].type) <= p) {
+            low = mid + 1;
         } else {
-            const hasAllSegments = !activeWorkItem.workItem.multipartData.segments.find(s => !s.etag && !s.blockId);
-            if (hasAllSegments && !activeWorkItem.workItem.multipartData.alreadyCounted) {
-                activeWorkItem.workItem.multipartData.alreadyCounted = true;
-                this.filesCopied++;
-            }
+            high = mid;
         }
     }
+    return low;
 }

@@ -1,0 +1,34 @@
+apply from: "${project.rootDir}/gradle-tasks-for-scripts.gradle"
+
+def loadEnvFile(File file) {
+    def props = [:]
+    file.eachLine { line ->
+        line = line.trim()
+        if (line && !line.startsWith('#')) {
+            def (key, value) = line.split('=', 2)
+            props[key.trim()] = value.trim()
+        }
+    }
+    return props
+}
+
+npmInstall {
+    dependsOn ":libraries:storage:npmPack"
+    dependsOn ":libraries:worker:npmPack"
+}
+
+task copyJSON(type: Copy) {
+    mustRunAfter tsc
+    from "src"
+    into "build/staging/scripts/test-aws-worker/src"
+    include "*.json"
+}
+
+tsc {
+    inputs.file("../../aws/worker/src/index.ts")
+}
+
+run {
+    dependsOn copyJSON
+    environment loadEnvFile(file('config.env'))
+}

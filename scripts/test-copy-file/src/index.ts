@@ -7,9 +7,9 @@ import { fromIni } from "@aws-sdk/credential-providers";
 
 import { AuthProvider, mcmaApiKeyAuth, ResourceManager, ResourceManagerConfig } from "@mcma/client";
 import { Job, JobParameterBag, JobProfile, JobStatus, Locator, McmaException, McmaTracker, StorageJob, Utils } from "@mcma/core";
-import { buildS3Url, S3Locator } from "@mcma/aws-s3";
+import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
 import { ContainerClient } from "@azure/storage-blob";
-import { BlobStorageLocator, buildBlobStorageUrl } from "@mcma/azure-blob-storage";
+import { BlobStorageLocator, buildBlobStorageUrl, isBlobStorageLocator } from "@mcma/azure-blob-storage";
 import { S3Helper } from "./s3-helper";
 
 const credentials = fromIni();
@@ -119,8 +119,24 @@ async function testJob(resourceManager: ResourceManager, sourceFile: Locator, de
         return;
     }
 
+    let prefix = generatePrefix();
+
+    let sourceKey: string;
+    if (isS3Locator(sourceFile)) {
+        sourceKey = sourceFile.key
+    } else if (isBlobStorageLocator(sourceFile)) {
+        sourceKey = sourceFile.blobName;
+    }
+
+    let prefixedDestinationFile;
+    if (isS3Locator(destinationFile)) {
+        prefixedDestinationFile = new S3Locator({ url: await buildS3Url(destinationFile.bucket, prefix + sourceKey, destinationFile.region)});
+    } else if (isBlobStorageLocator(destinationFile)) {
+        prefixedDestinationFile = new BlobStorageLocator({ url: buildBlobStorageUrl(destinationFile.account, destinationFile.container, prefix + sourceKey)});
+    }
+
     console.log("Creating job");
-    job = await startJob(resourceManager, sourceFile, destinationFile);
+    job = await startJob(resourceManager, sourceFile, prefixedDestinationFile);
 
     console.log("job.id = " + job.id);
     job = await waitForJobCompletion(job, resourceManager);
@@ -152,6 +168,10 @@ async function testService(resourceManager: ResourceManager, locators: { [key: s
 
     log("Testing copy from private S3 Bucket to to private Azure container");
     await testJob(resourceManager, locators["awsPrivateSource"], locators["azureTarget"]);
+}
+
+function generatePrefix() {
+    return `${new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").substring(0, 15)}/`;
 }
 
 async function main() {

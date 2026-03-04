@@ -4,7 +4,6 @@ import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
 import { FileCopier, SourceFile, DestinationFile, logError} from "@local/storage";
 import { WorkerContext } from "../worker-context";
-import { scanSourceFolderForCopy } from "./utils";
 import { StorageClass } from "@aws-sdk/client-s3";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
@@ -26,9 +25,8 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
     const progressUpdate = async (filesTotal: number, filesCopied: number, bytesTotal: number, bytesCopied: number) => {
         if (bytesTotal > 0) {
             const progress = Math.round((bytesCopied / bytesTotal * 100 + Number.EPSILON) * 10) / 10;
-            logger.info(`${progress}%`);
-
-            if (typeof jobAssignmentHelper.jobAssignment.progress !== "number" || Math.abs(jobAssignmentHelper.jobAssignment.progress - progress) > 0.5) {
+            if (typeof jobAssignmentHelper.jobAssignment.progress !== "number" || Math.abs(jobAssignmentHelper.jobAssignment.progress - progress) >= 0.1) {
+                logger.info(`${progress}%`);
                 await jobAssignmentHelper.updateJobAssignment(jobAssigment => jobAssigment.progress = progress, true);
             }
         }
@@ -63,12 +61,7 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
         storageClass,
     };
 
-    const files = await scanSourceFolderForCopy(sourceFile, destinationFile, ctx);
-    logger.info(files);
-
-    for (const file of files) {
-        fileCopier.addFile(file.sourceFile, file.destinationFile);
-    }
+    fileCopier.addFolder(sourceFile, destinationFile);
 
     await fileCopier.runUntil(runUntilDate, bailOutDate);
 
@@ -84,7 +77,7 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
         return;
     }
 
-    const state = fileCopier.getState();
+    const state = await fileCopier.getState();
     if (state.workItems.length > 0) {
         logger.info(`${state.workItems.length} work items remaining. Storing FileCopierState`);
         await ctx.saveFileCopierState(jobAssignmentDatabaseId, state);

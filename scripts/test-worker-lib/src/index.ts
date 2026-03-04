@@ -6,7 +6,16 @@ import { BlobStorageLocator, buildBlobStorageUrl } from "@mcma/azure-blob-storag
 import { S3Helper } from "./s3-helper";
 import { S3Client } from "@aws-sdk/client-s3";
 import { buildS3Url, S3Locator } from "@mcma/aws-s3";
-import { FileCopier, SourceFile, DestinationFile } from "@local/storage";
+import {
+    DestinationFile,
+    FileCopier,
+    FileCopierState,
+    loadTrieFromBlobStorage,
+    loadTrieFromS3,
+    saveTrieToBlobStorage,
+    saveTrieToS3,
+    SourceFile
+} from "@local/storage";
 import * as mime from "mime-types";
 
 const TERRAFORM_OUTPUT = "../../deployment/terraform.output.json";
@@ -34,12 +43,14 @@ const getS3Client = async (bucket: string, region?: string) => {
         case s3BucketEuWest1.bucket:
             return new S3Client({
                 credentials: { accessKeyId: s3BucketEuWest1.access_key, secretAccessKey: s3BucketEuWest1.secret_key },
-                region: region ?? s3BucketEuWest1.region
+                region: region ?? s3BucketEuWest1.region,
+                requestStreamBufferSize: 65_536
             });
         case s3BucketUsEast1.bucket:
             return new S3Client({
                 credentials: { accessKeyId: s3BucketUsEast1.access_key, secretAccessKey: s3BucketUsEast1.secret_key },
-                region: region ?? s3BucketUsEast1.region
+                region: region ?? s3BucketUsEast1.region,
+                requestStreamBufferSize: 65_536
             });
         default:
             throw new McmaException(`No config found for bucket '${bucket}'`);
@@ -64,7 +75,7 @@ function generatePrefix() {
 const progressUpdate = async (filesTotal: number, filesCopied: number, bytesTotal: number, bytesCopied: number) => {
     if (bytesTotal > 0) {
         const percentage = Math.round((bytesCopied / bytesTotal * 100 + Number.EPSILON) * 10) / 10;
-        logger.info(`${percentage}%`);
+        process.stdout.write(`${percentage}%\r`);
     }
 };
 
@@ -116,6 +127,7 @@ async function testCopyFromS3ToS3SmallFile() {
         getS3Client,
         getContainerClient,
         progressUpdate,
+        debug: true,
     });
 
     fileCopier.addFile(sourceFile, destinationFile);
@@ -138,11 +150,12 @@ async function testCopyFromS3ToS3BigFile() {
         getS3Client,
         getContainerClient,
         progressUpdate,
+        debug: true,
     });
 
     fileCopier.addFile(sourceFile, destinationFile);
     await fileCopier.runUntil(new Date(Date.now() + 30000), new Date(Date.now() + 120000));
-    const state = fileCopier.getState();
+    const state = await fileCopier.getState();
 
     log("Pausing");
     log(`${state.workItems.length} work items left`);
@@ -156,13 +169,14 @@ async function testCopyFromS3ToS3BigFile() {
         getS3Client,
         getContainerClient,
         progressUpdate,
+        debug: true,
     });
-    fileCopier2.setState(state);
+    await fileCopier2.setState(state);
 
     log("Continuing");
     await fileCopier2.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
 
-    const state2 = fileCopier2.getState();
+    const state2 = await fileCopier2.getState();
     log("Pausing");
     log(`${state2.workItems.length} work items left`);
 
@@ -185,6 +199,7 @@ async function testCopyFromBlobStorageToBlobStorageSmallFile() {
         getS3Client,
         getContainerClient,
         progressUpdate,
+        debug: true,
     });
 
     fileCopier.addFile(sourceFile, destinationFile);
@@ -197,44 +212,96 @@ async function testCopyFromBlobStorageToBlobStorageBigFile() {
 
     const prefix = generatePrefix();
 
-    const sourceLocator = await uploadFileToContainer(BIG_FILE, containerClients[azureWestEuropeStorageAccount.account]["source"], prefix);
+    const s3Client = await getS3Client(s3BucketUsEast1.bucket);
+    const bucket = s3BucketUsEast1.bucket;
+    const key = "trie.gz";
+
+    const containerClient = await getContainerClient(azureEastUsContainerStorageAccount.account, "source");
+    const blobClient = containerClient.getBlockBlobClient(key);
+
+    const sourceLocator = await uploadFileToContainer(BIG_FILE, containerClients[azureWestEuropeStorageAccount.account]["source"], "20260227-184829/");
     const sourceFile: SourceFile = { locator: sourceLocator };
 
-    const destinationFile: DestinationFile = { locator: new BlobStorageLocator({ url: buildBlobStorageUrl(azureEastUsContainerStorageAccount.account, "target", sourceLocator.blobName) }) };
+    const destinationFile: DestinationFile = { locator: new BlobStorageLocator({ url: buildBlobStorageUrl(azureEastUsContainerStorageAccount.account, "target", prefix + sourceLocator.blobName) }) };
 
     const fileCopier = new FileCopier({
         logger,
         maxConcurrency: 8,
+        multipartSegmentBatchSize: 8,
         getS3Client,
         getContainerClient,
         progressUpdate,
+        debug: true,
     });
 
-    fileCopier.addFile(sourceFile, destinationFile);
+    fileCopier.addFolder(sourceFile, destinationFile);
     await fileCopier.runUntil(new Date(Date.now() + 30000), new Date(Date.now() + 120000));
 
-    await Utils.sleep(5000);
-    const state = fileCopier.getState();
+    const state = await fileCopier.getState();
+    log(state);
+    log(`${state.workItems.length} work items left`);
+
+    log("Writing trie to S3");
+    await saveTrieToS3(state.trie, s3Client, bucket, key);
 
     log("Pausing");
-    log(`${state.workItems.length} work items left`);
-    log(state);
+    await Utils.sleep(5000);
+
+    log("Loading trie from S3");
+    const trie = await loadTrieFromS3(s3Client, bucket, key);
+
+    const stateCopy: FileCopierState = {
+        bytesCopied: state.bytesCopied,
+        bytesTotal: state.bytesTotal,
+        filesCopied: state.filesCopied,
+        filesTotal: state.filesTotal,
+        trie: trie,
+        workItems: state.workItems,
+    };
 
     const fileCopier2 = new FileCopier({
         logger,
         maxConcurrency: 8,
+        multipartSegmentBatchSize: 8,
         getS3Client,
         getContainerClient,
         progressUpdate,
+        debug: true,
     });
-    fileCopier2.setState(state);
+
+    await fileCopier2.setState(stateCopy);
 
     log("Continuing");
-    await fileCopier2.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
+    await fileCopier2.runUntil(new Date(Date.now() + 120000), new Date(Date.now() + 150000));
 
-    const state2 = fileCopier2.getState();
-    log("Pausing");
+    const state2 = await fileCopier2.getState();
     log(`${state2.workItems.length} work items left`);
+    log(state2);
+
+    log("Writing trie to Azure Blob Storage");
+    await saveTrieToBlobStorage(state2.trie, blobClient);
+
+    log("Pausing");
+    await Utils.sleep(5000);
+
+    const fileCopier3 = new FileCopier({
+        logger,
+        maxConcurrency: 8,
+        multipartSegmentBatchSize: 8,
+        getS3Client,
+        getContainerClient,
+        progressUpdate,
+        debug: true,
+    });
+
+
+    log("loading trie from Azure BLob Storage");
+    state2.trie = await loadTrieFromBlobStorage(blobClient);
+
+    await fileCopier3.setState(state2);
+
+    log("Continuing");
+    await fileCopier3.runUntil(new Date(Date.now() + 180000), new Date(Date.now() + 210000));
 }
 
 async function testCopyFromBlobStorageToS3SmallFile() {
@@ -253,6 +320,7 @@ async function testCopyFromBlobStorageToS3SmallFile() {
         getS3Client,
         getContainerClient,
         progressUpdate,
+        debug: true,
     });
 
     fileCopier.addFile(sourceFile, destinationFile);
@@ -275,13 +343,14 @@ async function testCopyFromBlobStorageToS3BigFile() {
         getS3Client,
         getContainerClient,
         progressUpdate,
+        debug: true,
     });
 
     fileCopier.addFile(sourceFile, destinationFile);
     await fileCopier.runUntil(new Date(Date.now() + 30000), new Date(Date.now() + 120000));
 
     await Utils.sleep(5000);
-    const state = fileCopier.getState();
+    const state = await fileCopier.getState();
 
     log("Pausing");
     log(`${state.workItems.length} work items left`);
@@ -293,15 +362,18 @@ async function testCopyFromBlobStorageToS3BigFile() {
         getS3Client,
         getContainerClient,
         progressUpdate,
+        debug: true,
     });
-    fileCopier2.setState(state);
+
+    await fileCopier2.setState(state);
 
     log("Continuing");
     await fileCopier2.runUntil(new Date(Date.now() + 60000), new Date(Date.now() + 120000));
 
-    const state2 = fileCopier2.getState();
+    const state2 = await fileCopier2.getState();
     log("Pausing");
     log(`${state2.workItems.length} work items left`);
+    log(state2);
 }
 
 
@@ -312,7 +384,7 @@ async function main() {
 
     log(terraformOutput);
 
-    azureWestEuropeStorageAccount = terraformOutput.storage_locations.value.azure_storage_accounts.find((sa: any) => sa.account.endsWith("westeurope"));
+    azureWestEuropeStorageAccount = terraformOutput.storage_locations.value.azure_storage_accounts.find((sa: any) => sa.account.endsWith("northeurope"));
     containerClients[azureWestEuropeStorageAccount.account] = {};
     containerClients[azureWestEuropeStorageAccount.account]["source"] = new ContainerClient(azureWestEuropeStorageAccount.connection_string, "source");
     containerClients[azureWestEuropeStorageAccount.account]["target"] = new ContainerClient(azureWestEuropeStorageAccount.connection_string, "target");
@@ -328,8 +400,8 @@ async function main() {
     // await testCopyFromS3ToS3SmallFile();
     // await testCopyFromS3ToS3BigFile();
 
-    await testCopyFromBlobStorageToBlobStorageSmallFile();
-    // await testCopyFromBlobStorageToBlobStorageBigFile();
+    // await testCopyFromBlobStorageToBlobStorageSmallFile();
+    await testCopyFromBlobStorageToBlobStorageBigFile();
 
     // await testCopyFromBlobStorageToS3SmallFile();
     // await testCopyFromBlobStorageToS3BigFile();

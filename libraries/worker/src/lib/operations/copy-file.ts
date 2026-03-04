@@ -26,9 +26,8 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
     const progressUpdate = async (filesTotal: number, filesCopied: number, bytesTotal: number, bytesCopied: number) => {
         if (bytesTotal > 0) {
             const progress = Math.round((bytesCopied / bytesTotal * 100 + Number.EPSILON) * 10) / 10;
-            logger.info(`${progress}%`);
-
-            if (typeof jobAssignmentHelper.jobAssignment.progress !== "number" || Math.abs(jobAssignmentHelper.jobAssignment.progress - progress) > 0.5) {
+            if (typeof jobAssignmentHelper.jobAssignment.progress !== "number" || Math.abs(jobAssignmentHelper.jobAssignment.progress - progress) >= 0.1) {
+                logger.info(`${progress}%`);
                 await jobAssignmentHelper.updateJobAssignment(jobAssigment => jobAssigment.progress = progress, true);
             }
         }
@@ -80,7 +79,7 @@ export async function copyFile(providers: ProviderCollection, jobAssignmentHelpe
         return;
     }
 
-    const state = fileCopier.getState();
+    const state = await fileCopier.getState();
     if (state.workItems.length > 0) {
         logger.info(`${state.workItems.length} work items remaining. Storing FileCopierState`);
         await ctx.saveFileCopierState(jobAssignmentDatabaseId, state);

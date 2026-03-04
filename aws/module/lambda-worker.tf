@@ -105,6 +105,20 @@ resource "aws_iam_role_policy" "worker" {
             ]
           },
           {
+            Sid      = "AllowListTempBucketWithPrefix",
+            Effect   = "Allow",
+            Action   = "s3:ListBucket",
+            Resource = var.temp_bucket != null ? var.temp_bucket.arn : aws_s3_bucket.temp[0].arn,
+            Condition = {
+              StringLike = {
+                "s3:prefix" = [
+                  var.temp_bucket_prefix,
+                  "${var.temp_bucket_prefix}*"
+                ]
+              }
+            }
+          },
+          {
             Sid    = "AllowReadWriteDeleteToTempBucket"
             Effect = "Allow"
             Action = [

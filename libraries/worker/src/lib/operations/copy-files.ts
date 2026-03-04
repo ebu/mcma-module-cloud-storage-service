@@ -5,7 +5,6 @@ import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
 import { FileCopier, SourceFile, DestinationFile, logError } from "@local/storage";
 import { WorkerContext } from "../worker-context";
-import { scanSourceFolderForCopy } from "./utils";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 
@@ -26,9 +25,8 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
     const progressUpdate = async (filesTotal: number, filesCopied: number, bytesTotal: number, bytesCopied: number) => {
         if (bytesTotal > 0) {
             const progress = Math.round((bytesCopied / bytesTotal * 100 + Number.EPSILON) * 10) / 10;
-            logger.info(`${progress}%`);
-
-            if (typeof jobAssignmentHelper.jobAssignment.progress !== "number" || Math.abs(jobAssignmentHelper.jobAssignment.progress - progress) > 0.5) {
+            if (typeof jobAssignmentHelper.jobAssignment.progress !== "number" || Math.abs(jobAssignmentHelper.jobAssignment.progress - progress) >= 0.1) {
+                logger.info(`${progress}%`);
                 await jobAssignmentHelper.updateJobAssignment(jobAssigment => jobAssigment.progress = progress, true);
             }
         }
@@ -76,19 +74,7 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
             storageClass,
         };
 
-        let transfers2: { sourceFile: SourceFile, destinationFile: DestinationFile }[];
-        try {
-            transfers2 = await scanSourceFolderForCopy(sourceFile, destinationFile, ctx);
-        } catch (error) {
-            logger.warn(`Failed to scan source folder for ${sourceFile.locator.url} due to following error. Assuming provided locators are files.`);
-            logger.warn(error);
-            transfers2 = [{ sourceFile, destinationFile }];
-        }
-        logger.info(transfers2);
-
-        for (const transfer2 of transfers2) {
-            fileCopier.addFile(transfer2.sourceFile, transfer2.destinationFile);
-        }
+        fileCopier.addFolder(sourceFile, destinationFile);
     }
 
     await fileCopier.runUntil(runUntilDate, bailOutDate);
@@ -105,7 +91,7 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
         return;
     }
 
-    const state = fileCopier.getState();
+    const state = await fileCopier.getState();
     if (state.workItems.length > 0) {
         logger.info(`${state.workItems.length} work items remaining. Storing FileCopierState`);
         await ctx.saveFileCopierState(jobAssignmentDatabaseId, state);

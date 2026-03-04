@@ -12,12 +12,26 @@ export interface DestinationFile {
 }
 
 export enum WorkType {
-    Prepare = "Prepare",
+    ScanFolder = "ScanFolder",
+    ScanFile = "ScanFile",
+    ProcessFolder = "ProcessFolder",
+    ProcessFile = "ProcessFile",
     Single = "Single",
     MultipartStart = "MultipartStart",
     MultipartSegment = "MultipartSegment",
     MultipartComplete = "MultipartComplete",
 }
+
+export const WorkTypePriority: Record<WorkType, number> = {
+    [WorkType.ScanFile]: 1,
+    [WorkType.ScanFolder]: 1,
+    [WorkType.Single]: 2,
+    [WorkType.MultipartStart]: 2,
+    [WorkType.MultipartSegment]: 2,
+    [WorkType.MultipartComplete]: 2,
+    [WorkType.ProcessFile]: 3,
+    [WorkType.ProcessFolder]: 4,
+};
 
 export interface MultipartSegment {
     partNumber: number;
@@ -28,27 +42,38 @@ export interface MultipartSegment {
     blockId?: string;
 }
 
+export enum SourceMethod {
+    EgressUrl = "EgressUrl",
+    LocatorUrl = "LocatorUrl",
+    S3Copy = "S3Copy",
+    SignedUrl = "SignedUrl",
+}
+
 export interface WorkItem {
     type: WorkType;
     sourceFile: SourceFile;
     destinationFile: DestinationFile;
-    retries: number;
-    sourceUrl?: string;
-    sourceHeaders?: { [key: string]: string };
+    continuationToken?: string;
+    sourceMethod?: SourceMethod;
     contentLength?: number;
     contentType?: string;
     lastModified?: Date;
     multipartData?: {
-        uploadId?: string;
+        nextPartNumber?: number;
+        nextBytePosition?: number;
+        multipartSize?: number;
+        s3UploadId?: string;
+        blockIdPrefix?: string;
         segment?: MultipartSegment;
         segments?: MultipartSegment[];
-        alreadyCounted?: boolean;
     };
+    retries: number;
 }
 
 export interface ActiveWorkItem {
     workItem: WorkItem;
     promise: Promise<any>;
+    abortController: AbortController;
     result?: any;
     error?: any;
 }

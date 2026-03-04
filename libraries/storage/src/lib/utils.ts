@@ -1,6 +1,6 @@
-import { Logger, McmaException } from "@mcma/core";
+import { Logger, McmaException, Utils } from "@mcma/core";
 
-export function logError(logger: Logger, error: Error) {
+export function logError(logger: Logger, error: any) {
     logger?.error(error?.name);
     logger?.error(error?.message);
     logger?.error(error?.stack);
@@ -52,4 +52,48 @@ export function parseRestoreValue(restore: string): Map<string, string> {
     }
 
     return map;
+}
+
+function isRetryableAwsError(err: any): boolean {
+    const status = err?.$metadata?.httpStatusCode;
+    const code = err?.name ?? err?.code;
+
+    if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504) {
+        return true;
+    }
+
+    return code === "Throttling" ||
+           code === "ThrottlingException" ||
+           code === "SlowDown" ||
+           code === "RequestTimeout" ||
+           code === "TimeoutError" ||
+           code === "InternalError" ||
+           code === "ServiceUnavailable";
+}
+
+export async function withRetry<T>(func: () => Promise<T>, abortSignal?: AbortSignal): Promise<T> {
+    let doRetry = false;
+    let attempt = 0;
+    let result: T;
+    do {
+        doRetry = false;
+        attempt++;
+
+        try {
+            result = await func();
+        } catch (error) {
+            if (abortSignal?.aborted) {
+                throw error;
+            }
+
+            if (!isRetryableAwsError(error) || attempt > 2) {
+                throw error;
+            }
+
+            doRetry = true;
+            await Utils.sleep(3000);
+        }
+    } while (doRetry);
+
+    return result;
 }

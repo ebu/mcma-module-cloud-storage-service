@@ -10,7 +10,7 @@ import { ConfigVariables } from "@mcma/core";
 import { ContainerClient } from "@azure/storage-blob";
 import { DefaultAzureCredential } from "@azure/identity";
 
-import { FileCopierState, StorageClientFactory } from "@local/storage";
+import { FileCopierState, StorageClientFactory, loadTrieFromBlobStorage, saveTrieToBlobStorage } from "@local/storage";
 import { buildWorker, WorkerContext } from "@local/worker";
 
 const loggerProvider = new AppInsightsLoggerProvider("cloud-storage-service-worker");
@@ -45,29 +45,57 @@ function getBlobClient(jobAssignmentId: string) {
 
     const prefix = configVariables.get("TEMP_CONTAINER_PREFIX");
     const jobAssignmentGuid = jobAssignmentId.substring(jobAssignmentId.lastIndexOf("/") + 1);
-    return containerClient.getBlockBlobClient(`${prefix}${jobAssignmentGuid}.json`);
+
+    const stateBlobClient = containerClient.getBlockBlobClient(`${prefix}${jobAssignmentGuid}.json`);
+    const trieBlobClient = containerClient.getBlockBlobClient(`${prefix}${jobAssignmentGuid}.trie.gz`);
+
+    return {
+        stateBlobClient,
+        trieBlobClient,
+    }
 }
 
 async function loadFileCopierState(jobAssignmentId: string): Promise<FileCopierState> {
-    const blobClient = getBlobClient(jobAssignmentId);
-    const buffer = await blobClient.downloadToBuffer();
-    const text = buffer.toString("utf-8");
-    return JSON.parse(text);
+    const { stateBlobClient, trieBlobClient }  = getBlobClient(jobAssignmentId);
+    const buffer = await stateBlobClient.downloadToBuffer();
+    const content = buffer.toString("utf-8");
+
+    const state: any = JSON.parse(content);
+    const trie = await loadTrieFromBlobStorage(trieBlobClient);
+
+    return {
+        filesTotal: state.filesTotal,
+        filesCopied: state.filesCopied,
+        bytesTotal: state.bytesTotal,
+        bytesCopied: state.bytesCopied,
+        workItems: state.workItems,
+        trie
+    }
 }
 
 async function saveFileCopierState(jobAssignmentId: string, state: FileCopierState): Promise<void> {
-    const blobClient = getBlobClient(jobAssignmentId);
-    const content = JSON.stringify(state);
-    await blobClient.upload(content, Buffer.byteLength(content), {
+    const { stateBlobClient, trieBlobClient } = getBlobClient(jobAssignmentId);
+    const content = JSON.stringify({
+        filesTotal: state.filesTotal,
+        filesCopied: state.filesCopied,
+        bytesTotal: state.bytesTotal,
+        bytesCopied: state.bytesCopied,
+        workItems: state.workItems,
+    });
+    await stateBlobClient.upload(content, Buffer.byteLength(content), {
         blobHTTPHeaders: {
             blobContentType: "application/json"
         },
     });
+
+    await saveTrieToBlobStorage(state.trie, trieBlobClient);
 }
 
 async function deleteFileCopierState(jobAssignmentId: string): Promise<void> {
-    const blobClient = getBlobClient(jobAssignmentId);
-    await blobClient.deleteIfExists();
+    const { stateBlobClient, trieBlobClient } = getBlobClient(jobAssignmentId);
+
+    await stateBlobClient.deleteIfExists();
+    await trieBlobClient.deleteIfExists();
 }
 
 export async function workerQueueHandler(queueItem: unknown, context: InvocationContext) {

@@ -6,6 +6,7 @@
         "esModuleInterop": true,
         "downlevelIteration": true,
         "noImplicitAny": true,
-        "noImplicitReturns": true
+        "noImplicitReturns": true,
+        "sourceMap": true
     }
 }
