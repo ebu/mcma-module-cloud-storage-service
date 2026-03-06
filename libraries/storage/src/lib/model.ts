@@ -25,12 +25,12 @@ export enum WorkType {
 export const WorkTypePriority: Record<WorkType, number> = {
     [WorkType.ScanFile]: 1,
     [WorkType.ScanFolder]: 1,
-    [WorkType.Single]: 2,
-    [WorkType.MultipartStart]: 2,
-    [WorkType.MultipartSegment]: 2,
     [WorkType.MultipartComplete]: 2,
-    [WorkType.ProcessFile]: 3,
-    [WorkType.ProcessFolder]: 4,
+    [WorkType.Single]: 3,
+    [WorkType.MultipartStart]: 3,
+    [WorkType.MultipartSegment]: 3,
+    [WorkType.ProcessFile]: 4,
+    [WorkType.ProcessFolder]: 5,
 };
 
 export interface MultipartSegment {

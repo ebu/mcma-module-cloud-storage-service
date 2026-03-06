@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import { Logger, McmaException, Utils } from "@mcma/core";
 
 export function logError(logger: Logger, error: any) {
@@ -72,15 +73,13 @@ function isRetryableAwsError(err: any): boolean {
 }
 
 export async function withRetry<T>(func: () => Promise<T>, abortSignal?: AbortSignal): Promise<T> {
-    let doRetry = false;
     let attempt = 0;
-    let result: T;
-    do {
-        doRetry = false;
+
+    while (true) {
         attempt++;
 
         try {
-            result = await func();
+            return abortSignal ? await raceAbort(abortSignal, func()) : await func();
         } catch (error) {
             if (abortSignal?.aborted) {
                 throw error;
@@ -90,10 +89,43 @@ export async function withRetry<T>(func: () => Promise<T>, abortSignal?: AbortSi
                 throw error;
             }
 
-            doRetry = true;
-            await Utils.sleep(3000);
+            if (abortSignal) {
+                await raceAbort(abortSignal, Utils.sleep(3000));
+            } else {
+                await Utils.sleep(3000);
+            }
         }
-    } while (doRetry);
+    }
+}
+export function abortPromise(signal: AbortSignal): Promise<never> {
+    if (signal.aborted) {
+        return Promise.reject(signal.reason ?? new Error("Aborted"));
+    }
 
-    return result;
+    return new Promise((_, reject) => {
+        const onAbort = () => {
+            signal.removeEventListener("abort", onAbort);
+            reject(signal.reason ?? new Error("Aborted"));
+        };
+        signal.addEventListener("abort", onAbort);
+    });
+}
+
+export async function raceAbort<T>(signal: AbortSignal, p: Promise<T>): Promise<T> {
+    return await Promise.race([p, abortPromise(signal)]);
+}
+
+export function destroyStreamOnAbort(stream: Readable, signal: AbortSignal): void {
+    const onAbort = () => {
+        stream.destroy(signal.reason instanceof Error ? signal.reason : new Error("Aborted"));
+    };
+
+    if (signal.aborted) {
+        onAbort();
+    } else {
+        signal.addEventListener("abort", onAbort, { once: true });
+        stream.once("close", () => {
+            signal.removeEventListener("abort", onAbort);
+        });
+    }
 }

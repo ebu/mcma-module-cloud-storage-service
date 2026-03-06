@@ -21,7 +21,7 @@ import { BlobStorageLocator, buildBlobStorageUrl, isBlobStorageLocator } from "@
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import { ActiveWorkItem, DestinationFile, MultipartSegment, SourceFile, SourceMethod, WorkItem, WorkType, WorkTypePriority } from "./model";
-import { logError, withRetry } from "./utils";
+import { destroyStreamOnAbort, logError, raceAbort, withRetry } from "./utils";
 import { UrlTrie } from "./url-trie";
 
 const MAX_CONCURRENCY = 32;
@@ -142,9 +142,6 @@ export class FileCopier {
         this.destinationUrls = await state.trie.clone();
 
         for (const workItem of workItems) {
-            if (!this.destinationUrls.has(workItem.destinationFile.locator.url)) {
-                throw new McmaException(`Invalid state. WorkItem with destination not found in trie: ${workItem.destinationFile.locator.url}`);
-            }
             workItem.retries = 0;
             this.queueWorkItem(workItem);
         }
@@ -175,13 +172,6 @@ export class FileCopier {
     }
 
     public addFile(sourceFile: SourceFile, destinationFile: DestinationFile) {
-        if (!this.destinationUrls.insert(destinationFile.locator.url)) {
-            throw new McmaException(`DestinationFile '${destinationFile.locator.url}' already added to FileCopier`, undefined, {
-                sourceFile: sourceFile,
-                destinationFile: destinationFile,
-            });
-        }
-
         this.queueWorkItem({
             type: WorkType.ScanFile,
             sourceFile,
@@ -202,7 +192,7 @@ export class FileCopier {
 
         this.running = true;
         try {
-            this.maxConcurrency = this.config.maxConcurrency > 0 && this.config.maxConcurrency < 64 ? this.config.maxConcurrency : MAX_CONCURRENCY;
+            this.maxConcurrency = this.config.maxConcurrency > 0 && this.config.maxConcurrency <= 64 ? this.config.maxConcurrency : MAX_CONCURRENCY;
 
             this.logger?.debug("FileCopier:runUntil() - Starting process thread");
 
@@ -449,94 +439,125 @@ export class FileCopier {
 
         let files = 0;
         let bytes = 0;
-        let continuationToken: string | undefined = undefined;
+        let continuationToken: string | undefined;
+        let treatAsFile = false;
 
-        if (isS3Locator(sourceFolder.locator)) {
-            const s3Client = await this.config.getS3Client(sourceFolder.locator.bucket, sourceFolder.locator.region);
+        let errorMessage: string | undefined;
+        let errorContext: {
+            sourceFolder: SourceFile
+            sourceFile: SourceFile
+            destinationFolder: DestinationFile
+            destinationFile: DestinationFile
+        } | undefined;
 
-            const params: ListObjectsV2CommandInput = {
-                Bucket: sourceFolder.locator.bucket,
-                Prefix: sourceFolder.locator.key,
-                ContinuationToken: workItem.continuationToken,
-                MaxKeys: PAGE_SIZE
-            };
+        try {
+            if (isS3Locator(sourceFolder.locator)) {
+                const s3Client = await this.config.getS3Client(sourceFolder.locator.bucket, sourceFolder.locator.region);
 
-            const output = await s3Client.send(new ListObjectsV2Command(params), { abortSignal });
-            continuationToken = output.NextContinuationToken;
+                const params: ListObjectsV2CommandInput = {
+                    Bucket: sourceFolder.locator.bucket,
+                    Prefix: sourceFolder.locator.key,
+                    ContinuationToken: workItem.continuationToken,
+                    MaxKeys: PAGE_SIZE
+                };
 
-            if (Array.isArray(output.Contents)) {
-                for (const content of output.Contents) {
-                    files++;
-                    bytes += content.Size ?? 0;
-
-                    const sourceFile: SourceFile = {
-                        locator: new S3Locator({
-                            url: await buildS3Url(sourceFolder.locator.bucket, content.Key, sourceFolder.locator.region)
-                        }),
-                        egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + content.Key.substring(sourceFolder.locator.key.length) : undefined,
-                    };
-
-                    const destinationFile = await buildDestinationFile(sourceFolder, sourceFile, destinationFolder);
-                    if (!this.destinationUrls.insert(destinationFile.locator.url)) {
-                        throw new McmaException(`DestinationFile '${destinationFile.locator.url}' already added to FileCopier`, undefined, {
-                            sourceFolder,
-                            sourceFile,
-                            destinationFolder,
-                            destinationFile,
-                        });
-                    }
-                }
-            }
-        } else if (isBlobStorageLocator(sourceFolder.locator)) {
-            const containerClient = await this.config.getContainerClient(sourceFolder.locator.account, sourceFolder.locator.container);
-
-            const iterator = containerClient
-                .listBlobsFlat({
-                    prefix: sourceFolder.locator.blobName,
+                const output = await raceAbort(
                     abortSignal,
-                })
-                .byPage({
-                    maxPageSize: PAGE_SIZE,
-                    continuationToken: workItem.continuationToken,
-                });
+                    s3Client.send(new ListObjectsV2Command(params), { abortSignal })
+                );
+                continuationToken = output.NextContinuationToken;
 
-            const page = await iterator.next();
-            if (!page.done && page.value) {
-                const response = page.value;
-                continuationToken = response.continuationToken;
+                if (Array.isArray(output.Contents)) {
+                    for (const content of output.Contents) {
+                        if (!content.Key) {
+                            continue;
+                        }
 
-                for (const blob of response.segment.blobItems) {
-                    if (blob.name.endsWith("/")) {
-                        continue;
+                        files++;
+                        bytes += content.Size ?? 0;
+
+                        const sourceFile: SourceFile = {
+                            locator: new S3Locator({
+                                url: await buildS3Url(sourceFolder.locator.bucket, content.Key, sourceFolder.locator.region)
+                            }),
+                            egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + content.Key.substring(sourceFolder.locator.key.length) : undefined,
+                        };
+
+                        const destinationFile = await buildDestinationFile(sourceFolder, sourceFile, destinationFolder);
+                        if (!this.destinationUrls.insert(destinationFile.locator.url)) {
+                            errorMessage = `DestinationFile '${destinationFile.locator.url}' already added to FileCopier`;
+                            errorContext = {
+                                sourceFolder,
+                                sourceFile,
+                                destinationFolder,
+                                destinationFile,
+                            };
+                            break;
+                        }
                     }
+                }
+            } else if (isBlobStorageLocator(sourceFolder.locator)) {
+                const containerClient = await this.config.getContainerClient(sourceFolder.locator.account, sourceFolder.locator.container);
 
-                    files++;
-                    bytes += blob.properties.contentLength ?? 0;
+                const iterator = containerClient
+                    .listBlobsFlat({
+                        prefix: sourceFolder.locator.blobName,
+                        abortSignal,
+                    })
+                    .byPage({
+                        maxPageSize: PAGE_SIZE,
+                        continuationToken: workItem.continuationToken,
+                    });
 
-                    const sourceFile: SourceFile = {
-                        locator: new BlobStorageLocator({
-                            url: buildBlobStorageUrl(sourceFolder.locator.account, sourceFolder.locator.container, blob.name)
-                        }),
-                        egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + blob.name.substring(sourceFolder.locator.blobName.length) : undefined,
-                    };
+                const page = await iterator.next();
+                if (!page.done && page.value) {
+                    const response = page.value;
+                    continuationToken = response.continuationToken;
 
-                    const destinationFile = await buildDestinationFile(sourceFolder, sourceFile, destinationFolder);
-                    if (!this.destinationUrls.insert(destinationFile.locator.url)) {
-                        throw new McmaException(`DestinationFile '${destinationFile.locator.url}' already added to FileCopier`, undefined, {
-                            sourceFolder,
-                            sourceFile,
-                            destinationFolder,
-                            destinationFile,
-                        });
+                    for (const blob of response.segment.blobItems) {
+                        files++;
+                        bytes += blob.properties.contentLength ?? 0;
+
+                        const sourceFile: SourceFile = {
+                            locator: new BlobStorageLocator({
+                                url: buildBlobStorageUrl(sourceFolder.locator.account, sourceFolder.locator.container, blob.name)
+                            }),
+                            egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + blob.name.substring(sourceFolder.locator.blobName.length) : undefined,
+                        };
+
+                        const destinationFile = await buildDestinationFile(sourceFolder, sourceFile, destinationFolder);
+                        if (!this.destinationUrls.insert(destinationFile.locator.url)) {
+                            errorMessage = `DestinationFile '${destinationFile.locator.url}' already added to FileCopier`;
+                            errorContext = {
+                                sourceFolder,
+                                sourceFile,
+                                destinationFolder,
+                                destinationFile,
+                            };
+                            break;
+                        }
                     }
                 }
             }
+        } catch (error) {
+            if (abortSignal.aborted) {
+                throw error;
+            }
+
+            // in case we get an error we assume it's a permissions and in that case there is nothing we can do
+            // In this case we give it one more attempt and try it as a public file.
+
+            logError(this.logger, error);
+            treatAsFile = true;
         }
 
         return {
             files,
             bytes,
+            treatAsFile,
             continuationToken,
+            errorMessage,
+            errorContext,
         };
     }
 
@@ -544,7 +565,27 @@ export class FileCopier {
      * The goal of finish ScanFolder is to get the output from previous method. Add it to the totals and
      * generate a new ScanFolder workItem if there is a continuationToken or else generate a ProcessFolder workItem
      */
-    private finishWorkItemScanFolder(workItem: WorkItem, result: { files: number, bytes: number, continuationToken?: string }) {
+    private finishWorkItemScanFolder(workItem: WorkItem, result: {
+        files: number,
+        bytes: number,
+        treatAsFile: boolean,
+        continuationToken?: string,
+        errorMessage?: string,
+        errorContext?: any,
+    }) {
+        if (result.errorMessage) {
+            throw new McmaException(result.errorMessage, undefined, result.errorContext);
+        }
+
+        if (result.treatAsFile) {
+            this.queueWorkItem({
+                ...workItem,
+                type: WorkType.ScanFile,
+                retries: 0,
+            });
+            return;
+        }
+
         this.filesTotal += result.files;
         this.bytesTotal += result.bytes;
 
@@ -575,10 +616,13 @@ export class FileCopier {
         if (isS3Locator(workItem.sourceFile.locator)) {
             try {
                 const s3Client = await this.config.getS3Client(workItem.sourceFile.locator.bucket, workItem.sourceFile.locator.region);
-                const commandOutput = await s3Client.send(new HeadObjectCommand({
-                    Bucket: workItem.sourceFile.locator.bucket,
-                    Key: workItem.sourceFile.locator.key,
-                }), { abortSignal });
+                const commandOutput = await raceAbort(
+                    abortSignal,
+                    s3Client.send(new HeadObjectCommand({
+                        Bucket: workItem.sourceFile.locator.bucket,
+                        Key: workItem.sourceFile.locator.key,
+                    }), { abortSignal })
+                );
 
                 contentLength = commandOutput.ContentLength;
                 contentType = commandOutput.ContentType;
@@ -595,7 +639,10 @@ export class FileCopier {
             try {
                 const sourceContainerClient = await this.config.getContainerClient(workItem.sourceFile.locator.account, workItem.sourceFile.locator.container);
                 const sourceBlobClient = sourceContainerClient.getBlockBlobClient(workItem.sourceFile.locator.blobName);
-                const properties = await sourceBlobClient.getProperties({ abortSignal });
+                const properties = await raceAbort(
+                    abortSignal,
+                    sourceBlobClient.getProperties({ abortSignal })
+                );
 
                 contentLength = properties.contentLength;
                 contentType = properties.contentType;
@@ -611,10 +658,13 @@ export class FileCopier {
         }
 
         if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
-            const response = await axios.head(workItem.sourceFile.egressUrl ?? workItem.sourceFile.locator.url, {
-                ...this.config.axiosConfig,
-                signal: abortSignal,
-            });
+            const response = await raceAbort(
+                abortSignal,
+                axios.head(workItem.sourceFile.egressUrl ?? workItem.sourceFile.locator.url, {
+                    ...this.config.axiosConfig,
+                    signal: abortSignal,
+                })
+            );
 
             contentLength = Number(response.headers["content-length"]);
             contentType = response.headers["content-type"];
@@ -636,6 +686,13 @@ export class FileCopier {
      * The goal of finish ScanFile is to add to totals and create a ProcessFile work item
      */
     private finishWorkItemScanFile(workItem: WorkItem, result: { contentLength: number, contentType?: string, lastModified?: Date }) {
+        if (!this.destinationUrls.insert(workItem.destinationFile.locator.url)) {
+            throw new McmaException(`DestinationFile '${workItem.destinationFile.locator.url}' already added to FileCopier`, undefined, {
+                sourceFile: workItem.sourceFile,
+                destinationFile: workItem.destinationFile,
+            });
+        }
+
         if (!Number.isSafeInteger(result.contentLength) || result.contentLength < 0) {
             throw new McmaException("Invalid contentLength for finishWorkItemScanFile work item");
         }
@@ -682,11 +739,18 @@ export class FileCopier {
                 MaxKeys: PAGE_SIZE
             };
 
-            const output = await s3Client.send(new ListObjectsV2Command(params), { abortSignal });
+            const output = await raceAbort(
+                abortSignal,
+                s3Client.send(new ListObjectsV2Command(params), { abortSignal })
+            );
             continuationToken = output.NextContinuationToken;
 
             if (Array.isArray(output.Contents)) {
                 for (const content of output.Contents) {
+                    if (!content.Key) {
+                        continue;
+                    }
+
                     const sourceFile: SourceFile = {
                         locator: new S3Locator({
                             url: await buildS3Url(sourceFolder.locator.bucket, content.Key, sourceFolder.locator.region)
@@ -817,10 +881,13 @@ export class FileCopier {
                 const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket, workItem.sourceFile.locator.region);
 
                 try {
-                    await s3Client.send(new HeadObjectCommand({
-                        Bucket: workItem.sourceFile.locator.bucket,
-                        Key: workItem.sourceFile.locator.key,
-                    }), { abortSignal });
+                    await raceAbort(
+                        abortSignal,
+                        s3Client.send(new HeadObjectCommand({
+                            Bucket: workItem.sourceFile.locator.bucket,
+                            Key: workItem.sourceFile.locator.key,
+                        }), { abortSignal })
+                    );
 
                     sourceMethod = SourceMethod.S3Copy;
                 } catch (error) {
@@ -837,10 +904,13 @@ export class FileCopier {
             if (!sourceMethod) {
                 // first check if locator URL is publicly readable.
                 try {
-                    await axios.head(workItem.sourceFile.locator.url, {
-                        ...this.config.axiosConfig,
-                        signal: abortSignal,
-                    });
+                    await raceAbort(
+                        abortSignal,
+                        axios.head(workItem.sourceFile.locator.url, {
+                            ...this.config.axiosConfig,
+                            signal: abortSignal,
+                        })
+                    );
                     sourceMethod = SourceMethod.LocatorUrl;
                 } catch (error) {
                     if (abortSignal.aborted) {
@@ -865,10 +935,13 @@ export class FileCopier {
             if (isS3Locator(workItem.destinationFile.locator)) {
                 const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
 
-                const headOutput = await s3Client.send(new HeadObjectCommand({
-                    Bucket: workItem.destinationFile.locator.bucket,
-                    Key: workItem.destinationFile.locator.key
-                }), { abortSignal });
+                const headOutput = await raceAbort(
+                    abortSignal,
+                    s3Client.send(new HeadObjectCommand({
+                        Bucket: workItem.destinationFile.locator.bucket,
+                        Key: workItem.destinationFile.locator.key
+                    }), { abortSignal })
+                );
 
                 targetContentLength = headOutput.ContentLength;
                 targetContentType = headOutput.ContentType;
@@ -876,7 +949,10 @@ export class FileCopier {
             } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
                 const containerClient = await this.config.getContainerClient(workItem.destinationFile.locator.account, workItem.destinationFile.locator.container);
                 const blobClient = containerClient.getBlobClient(workItem.destinationFile.locator.blobName);
-                const propertiesResponse = await blobClient.getProperties({ abortSignal });
+                const propertiesResponse = await raceAbort(
+                    abortSignal,
+                    blobClient.getProperties({ abortSignal })
+                );
 
                 targetContentLength = propertiesResponse.contentLength;
                 targetContentType = propertiesResponse.contentType;
@@ -950,27 +1026,35 @@ export class FileCopier {
             const destinationLocator = workItem.destinationFile.locator as S3Locator;
 
             const s3Client = await this.config.getS3Client(destinationLocator.bucket, destinationLocator.region);
-            await s3Client.send(new CopyObjectCommand({
-                Bucket: destinationLocator.bucket,
-                Key: destinationLocator.key,
-                CopySource: `${sourceLocator.bucket}/${encodeURIComponent(sourceLocator.key)}`,
-                StorageClass: workItem.destinationFile.storageClass,
-            }), { abortSignal });
+            await raceAbort(
+                abortSignal,
+                s3Client.send(new CopyObjectCommand({
+                        Bucket: destinationLocator.bucket,
+                        Key: destinationLocator.key,
+                        CopySource: `${sourceLocator.bucket}/${encodeURIComponent(sourceLocator.key)}`,
+                        StorageClass: workItem.destinationFile.storageClass,
+                    }), { abortSignal }
+                )
+            );
         } else {
             let sourceUrl = await this.obtainSourceUrlFromWorkItem(workItem);
             if (!sourceUrl) {
-                throw new McmaException("Failed to resolve source url for MultipartSegment");
+                throw new McmaException(`Failed to resolve source url for WorkItemSingle - ${workItem.destinationFile.locator.url}`);
             }
 
             if (isS3Locator(workItem.destinationFile.locator)) {
                 const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
 
-                const response = await axios.get(sourceUrl, {
-                    ...this.config.axiosConfig,
-                    responseType: "stream",
-                    decompress: false,
-                    signal: abortSignal,
-                });
+                // 1) Start the GET (abortable) and race it so we don't hang waiting for headers
+                const response = await raceAbort(
+                    abortSignal,
+                    axios.get(sourceUrl, {
+                        ...this.config.axiosConfig,
+                        responseType: "stream",
+                        decompress: false,
+                        signal: abortSignal,
+                    })
+                );
                 if (response.status < 200 || response.status >= 300) {
                     const msg = `GET ${sourceUrl} returned ${response.status}`;
                     this.logInfo(workItem, msg);
@@ -982,6 +1066,9 @@ export class FileCopier {
                     throw new McmaException(msg);
                 }
 
+                // 2) Ensure the body stream is destroyed on abort
+                destroyStreamOnAbort(response.data, abortSignal);
+
                 const contentLengthHeader = response.headers["content-length"];
                 if (contentLengthHeader !== undefined) {
                     const n = Number(contentLengthHeader);
@@ -992,25 +1079,34 @@ export class FileCopier {
                     }
                 }
 
-                await s3Client.send(new PutObjectCommand({
-                    Bucket: workItem.destinationFile.locator.bucket,
-                    Key: workItem.destinationFile.locator.key,
-                    Body: response.data,
-                    ContentType: workItem.contentType,
-                    StorageClass: workItem.destinationFile.storageClass,
-                    ContentLength: workItem.contentLength,
-                }), { abortSignal });
+                await raceAbort(
+                    abortSignal,
+                    s3Client.send(new PutObjectCommand({
+                        Bucket: workItem.destinationFile.locator.bucket,
+                        Key: workItem.destinationFile.locator.key,
+                        Body: response.data,
+                        ContentType: workItem.contentType,
+                        StorageClass: workItem.destinationFile.storageClass,
+                        ContentLength: workItem.contentLength,
+                    }), { abortSignal })
+                );
             } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
                 const containerClient = await this.config.getContainerClient(workItem.destinationFile.locator.account, workItem.destinationFile.locator.container);
                 const blobClient = containerClient.getBlockBlobClient(workItem.destinationFile.locator.blobName);
 
-                const poller = await blobClient.beginCopyFromURL(sourceUrl, { abortSignal });
+                const poller = await raceAbort(
+                    abortSignal,
+                    blobClient.beginCopyFromURL(sourceUrl, { abortSignal })
+                );
                 while (true) {
                     if (abortSignal.aborted) {
                         throw new McmaException("Azure copy operation aborted");
                     }
 
-                    await poller.poll({ abortSignal });
+                    await raceAbort(
+                        abortSignal,
+                        poller.poll({ abortSignal })
+                    );
                     const state = poller.getOperationState();
 
                     if (state.isCompleted) {
@@ -1024,7 +1120,10 @@ export class FileCopier {
                     await Utils.sleep(1000);
                 }
 
-                const props = await blobClient.getProperties({ abortSignal });
+                const props = await raceAbort(
+                    abortSignal,
+                    blobClient.getProperties({ abortSignal })
+                );
                 const copyStatus = props.copyStatus;
 
                 if (copyStatus && copyStatus !== "success") {
@@ -1032,7 +1131,10 @@ export class FileCopier {
                 }
 
                 if (workItem.contentType) {
-                    await blobClient.setHTTPHeaders({ blobContentType: workItem.contentType }, { abortSignal });
+                    await raceAbort(
+                        abortSignal,
+                        blobClient.setHTTPHeaders({ blobContentType: workItem.contentType }, { abortSignal })
+                    );
                 }
             } else {
                 throw new McmaException("Unexpected locator type " + workItem.destinationFile.locator["@type"]);
@@ -1063,12 +1165,15 @@ export class FileCopier {
             s3UploadId = workItem.multipartData?.s3UploadId;
         } else if (isS3Locator(workItem.destinationFile.locator)) {
             const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
-            const commandOutput = await s3Client.send(new CreateMultipartUploadCommand({
-                Bucket: workItem.destinationFile.locator.bucket,
-                Key: workItem.destinationFile.locator.key,
-                ContentType: workItem.contentType,
-                StorageClass: workItem.destinationFile.storageClass,
-            }), { abortSignal });
+            const commandOutput = await raceAbort(
+                abortSignal,
+                s3Client.send(new CreateMultipartUploadCommand({
+                    Bucket: workItem.destinationFile.locator.bucket,
+                    Key: workItem.destinationFile.locator.key,
+                    ContentType: workItem.contentType,
+                    StorageClass: workItem.destinationFile.storageClass,
+                }), { abortSignal })
+            );
             s3UploadId = commandOutput.UploadId;
             if (!s3UploadId) {
                 throw new McmaException(`CreateMultipartUploadCommand returned uploadId: ${s3UploadId}`);
@@ -1231,14 +1336,17 @@ export class FileCopier {
 
             const s3Client = await this.config.getS3Client(destinationLocator.bucket, destinationLocator.region);
 
-            const commandOutput = await s3Client.send(new UploadPartCopyCommand({
-                Bucket: destinationLocator.bucket,
-                Key: destinationLocator.key,
-                CopySource: `${sourceLocator.bucket}/${encodeURIComponent(sourceLocator.key)}`,
-                CopySourceRange: `bytes=${workItem.multipartData.segment.start}-${workItem.multipartData.segment.end}`,
-                UploadId: workItem.multipartData.s3UploadId,
-                PartNumber: workItem.multipartData.segment.partNumber,
-            }), { abortSignal });
+            const commandOutput = await raceAbort(
+                abortSignal,
+                s3Client.send(new UploadPartCopyCommand({
+                    Bucket: destinationLocator.bucket,
+                    Key: destinationLocator.key,
+                    CopySource: `${sourceLocator.bucket}/${encodeURIComponent(sourceLocator.key)}`,
+                    CopySourceRange: `bytes=${workItem.multipartData.segment.start}-${workItem.multipartData.segment.end}`,
+                    UploadId: workItem.multipartData.s3UploadId,
+                    PartNumber: workItem.multipartData.segment.partNumber,
+                }), { abortSignal })
+            );
 
             const result = commandOutput.CopyPartResult;
             if (!result?.ETag) {
@@ -1258,16 +1366,20 @@ export class FileCopier {
                 const start = workItem.multipartData.segment.start;
                 const end = workItem.multipartData.segment.end;
 
-                const response = await axios.get(sourceUrl, {
-                    ...this.config.axiosConfig,
-                    responseType: "stream",
-                    decompress: false,
-                    headers: {
-                        ...(this.config.axiosConfig?.headers ?? {}),
-                        Range: `bytes=${start}-${end}`,
-                    },
-                    signal: abortSignal,
-                });
+                // 1) Start the GET (abortable) and race it so we don't hang waiting for headers
+                const response = await raceAbort(
+                    abortSignal,
+                    axios.get(sourceUrl, {
+                        ...this.config.axiosConfig,
+                        responseType: "stream",
+                        decompress: false,
+                        headers: {
+                            ...(this.config.axiosConfig?.headers ?? {}),
+                            Range: `bytes=${start}-${end}`,
+                        },
+                        signal: abortSignal,
+                    })
+                );
 
                 if (response.status !== 206) {
                     const msg = `Expected 206 Partial Content but received ${response.status}`;
@@ -1307,25 +1419,28 @@ export class FileCopier {
                         throw new McmaException(msg);
                     }
                 }
-                if (response.status < 200 || response.status >= 300) {
-                    const msg = `GET ${sourceUrl} returned ${response.status}`;
-                    this.logInfo(workItem, msg);
-                    throw new McmaException(msg);
-                }
+
                 if (!response.data) {
                     const msg = `GET ${sourceUrl} returned no response.data`;
                     this.logInfo(workItem, msg);
                     throw new McmaException(msg);
                 }
 
-                const commandOutput = await s3Client.send(new UploadPartCommand({
-                    Bucket: workItem.destinationFile.locator.bucket,
-                    Key: workItem.destinationFile.locator.key,
-                    Body: response.data,
-                    UploadId: workItem.multipartData.s3UploadId,
-                    PartNumber: workItem.multipartData.segment.partNumber,
-                    ContentLength: workItem.multipartData.segment.length,
-                }), { abortSignal });
+                // 2) Ensure the body stream is destroyed on abort
+                destroyStreamOnAbort(response.data, abortSignal);
+
+                // 3) Start the S3 upload (also abortable) and race it so our promise settles on abort
+                const commandOutput = await raceAbort(
+                    abortSignal,
+                    s3Client.send(new UploadPartCommand({
+                        Bucket: workItem.destinationFile.locator.bucket,
+                        Key: workItem.destinationFile.locator.key,
+                        Body: response.data,
+                        UploadId: workItem.multipartData.s3UploadId,
+                        PartNumber: workItem.multipartData.segment.partNumber,
+                        ContentLength: workItem.multipartData.segment.length,
+                    }), { abortSignal })
+                );
 
                 const etagValue = commandOutput.ETag;
                 if (!etagValue) {
@@ -1350,12 +1465,15 @@ export class FileCopier {
 
                 blockId = Buffer.concat([prefixBytes, partBytes]).toString("base64");
 
-                await blobClient.stageBlockFromURL(
-                    blockId,
-                    sourceUrl,
-                    workItem.multipartData.segment.start,
-                    workItem.multipartData.segment.length,
-                    { abortSignal }
+                await raceAbort(
+                    abortSignal,
+                    blobClient.stageBlockFromURL(
+                        blockId,
+                        sourceUrl,
+                        workItem.multipartData.segment.start,
+                        workItem.multipartData.segment.length,
+                        { abortSignal }
+                    )
                 );
             } else {
                 throw new McmaException("Unexpected locator type " + workItem.destinationFile.locator["@type"]);
@@ -1385,19 +1503,22 @@ export class FileCopier {
             if (completed) {
                 const s3Client = await this.config.getS3Client(workItem.destinationFile.locator.bucket);
 
-                await s3Client.send(new CompleteMultipartUploadCommand({
-                    Bucket: workItem.destinationFile.locator.bucket,
-                    Key: workItem.destinationFile.locator.key,
-                    UploadId: workItem.multipartData.s3UploadId,
-                    MultipartUpload: {
-                        Parts: workItem.multipartData.segments.map(segment => {
-                            return {
-                                ETag: segment.etag,
-                                PartNumber: segment.partNumber,
-                            };
-                        }).sort((a, b) => a.PartNumber - b.PartNumber)
-                    }
-                }), { abortSignal });
+                await raceAbort(
+                    abortSignal,
+                    s3Client.send(new CompleteMultipartUploadCommand({
+                        Bucket: workItem.destinationFile.locator.bucket,
+                        Key: workItem.destinationFile.locator.key,
+                        UploadId: workItem.multipartData.s3UploadId,
+                        MultipartUpload: {
+                            Parts: workItem.multipartData.segments.map(segment => {
+                                return {
+                                    ETag: segment.etag,
+                                    PartNumber: segment.partNumber,
+                                };
+                            }).sort((a, b) => a.PartNumber - b.PartNumber)
+                        }
+                    }), { abortSignal })
+                );
             }
         } else if (isBlobStorageLocator(workItem.destinationFile.locator)) {
             completed = !workItem.multipartData.segments.some(s => !s.blockId);
@@ -1405,7 +1526,10 @@ export class FileCopier {
                 const containerClient = await this.config.getContainerClient(workItem.destinationFile.locator.account, workItem.destinationFile.locator.container);
                 const blobClient = containerClient.getBlockBlobClient(workItem.destinationFile.locator.blobName);
                 const blockIds = [...workItem.multipartData.segments].sort((a, b) => a.partNumber - b.partNumber).map(s => s.blockId);
-                await blobClient.commitBlockList(blockIds, { blobHTTPHeaders: { blobContentType: workItem.contentType }, abortSignal });
+                await raceAbort(
+                    abortSignal,
+                    blobClient.commitBlockList(blockIds, { blobHTTPHeaders: { blobContentType: workItem.contentType }, abortSignal })
+                );
             }
         } else {
             throw new McmaException(`Unsupported locator type '${workItem.destinationFile.locator["@type"]}'`);
