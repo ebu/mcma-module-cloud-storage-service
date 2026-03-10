@@ -1009,12 +1009,24 @@ export class FileCopier {
             return;
         }
 
-        this.queueWorkItem({
-            ...workItem,
-            type: (workItem.contentLength > this.multipartSize) ? WorkType.MultipartStart : WorkType.Single,
-            sourceMethod: result.sourceMethod,
-            retries: 0,
-        });
+        if (workItem.contentLength > this.multipartSize) {
+            this.queueWorkItem({
+                ...workItem,
+                type: WorkType.MultipartStart,
+                sourceMethod: result.sourceMethod,
+                multipartData: {
+                    segments: []
+                },
+                retries: 0,
+            });
+        } else {
+            this.queueWorkItem({
+                ...workItem,
+                type: WorkType.Single,
+                sourceMethod: result.sourceMethod,
+                retries: 0,
+            });
+        }
     }
 
     /**

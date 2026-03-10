@@ -172,7 +172,7 @@ resource "azurerm_application_insights" "app_insights" {
 #########################
 
 module "service_registry_azure" {
-  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=v1.4.0"
+  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=v1.4.1"
 
   prefix = "${var.prefix}-sr"
 
@@ -210,7 +210,7 @@ module "job_processor_azure" {
     mcma = mcma.azure
   }
 
-  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=v1.4.0"
+  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=v1.4.1"
 
   prefix = "${var.prefix}-jp"
 

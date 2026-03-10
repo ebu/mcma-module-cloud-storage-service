@@ -143,7 +143,7 @@ resource "azapi_resource" "function_app" {
           },
           {
             name  = "MCMA_WORKER_FUNCTION_ID",
-            value = azurerm_storage_queue.queue.id
+            value = azurerm_storage_queue.queue.url
           },
           {
             name  = "JOB_PROFILE_PREFIX",
@@ -258,7 +258,7 @@ resource "azurerm_windows_function_app" "function_app" {
     MCMA_API_KEY_SECURITY_CONFIG_HASH      = sha256(azurerm_key_vault_secret.api_key_security_config.value)
 
     WORKER_QUEUE_NAME       = azurerm_storage_queue.queue.name
-    MCMA_WORKER_FUNCTION_ID = azurerm_storage_queue.queue.id
+    MCMA_WORKER_FUNCTION_ID = azurerm_storage_queue.queue.url
 
     JOB_PROFILE_PREFIX = var.job_profile_prefix
 
@@ -287,12 +287,12 @@ resource "azurerm_key_vault_access_policy" "function_app" {
 }
 
 resource "azurerm_storage_queue" "queue" {
-  name                 = "${var.prefix}-worker"
-  storage_account_name = var.storage_account.name
+  name               = "${var.prefix}-worker"
+  storage_account_id = var.storage_account.id
 }
 
 resource "azurerm_role_assignment" "queue" {
-  scope                = azurerm_storage_queue.queue.resource_manager_id
+  scope                = azurerm_storage_queue.queue.id
   role_definition_name = "Storage Queue Data Contributor"
   principal_id         = var.use_flex_consumption_plan ? azapi_resource.function_app[0].output.identity.principalId : azurerm_windows_function_app.function_app[0].identity[0].principal_id
 }
