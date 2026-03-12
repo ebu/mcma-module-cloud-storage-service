@@ -6,7 +6,7 @@ import { AppInsightsLoggerProvider } from "@mcma/azure-logger";
 import { AzureKeyVaultSecretsProvider } from "@mcma/azure-key-vault";
 import { CosmosDbTableProvider, fillOptionsFromConfigVariables } from "@mcma/azure-cosmos-db";
 import { QueueWorkerInvoker } from "@mcma/azure-queue-worker-invoker";
-import { ConfigVariables } from "@mcma/core";
+import { ConfigVariables, Utils } from "@mcma/core";
 import { ContainerClient } from "@azure/storage-blob";
 import { DefaultAzureCredential } from "@azure/identity";
 
@@ -60,7 +60,7 @@ async function loadFileCopierState(jobAssignmentId: string): Promise<FileCopierS
     const buffer = await stateBlobClient.downloadToBuffer();
     const content = buffer.toString("utf-8");
 
-    const state: any = JSON.parse(content);
+    const state: any = JSON.parse(content, Utils.reviver);
     const trie = await loadTrieFromBlobStorage(trieBlobClient);
 
     return {

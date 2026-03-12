@@ -6,7 +6,7 @@ import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client, S3Cl
 import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import { LambdaClient } from "@aws-sdk/client-lambda";
 import { LambdaWorkerInvoker } from "@mcma/aws-lambda-worker-invoker";
-import { ConfigVariables, ConsoleLoggerProvider, LoggerProvider } from "@mcma/core";
+import { ConfigVariables, ConsoleLoggerProvider, LoggerProvider, Utils } from "@mcma/core";
 
 import { AuthProvider, mcmaApiKeyAuth, ResourceManagerProvider } from "@mcma/client";
 import { WorkerRequest, WorkerRequestProperties } from "@mcma/worker";
@@ -72,7 +72,7 @@ async function loadFileCopierState(jobAssignmentId: string): Promise<FileCopierS
     }));
 
     const content = await output.Body.transformToString();
-    const state: any = JSON.parse(content);
+    const state: any = JSON.parse(content, Utils.reviver);
     const trie = await loadTrieFromS3(s3ClientForState, bucket, trieKey);
 
     return {
