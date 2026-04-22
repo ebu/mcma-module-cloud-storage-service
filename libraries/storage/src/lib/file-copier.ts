@@ -666,9 +666,13 @@ export class FileCopier {
                 })
             );
 
-            contentLength = Number(response.headers["content-length"]);
-            contentType = response.headers["content-type"];
-            lastModified = new Date(response.headers["last-modified"]);
+            const contentLengthHeader = getAxiosHeaderString(response.headers["content-length"]);
+            const contentTypeHeader = getAxiosHeaderString(response.headers["content-type"]);
+            const lastModifiedHeader = getAxiosHeaderString(response.headers["last-modified"]);
+
+            contentLength = Number(contentLengthHeader);
+            contentType = contentTypeHeader;
+            lastModified = lastModifiedHeader ? new Date(lastModifiedHeader) : undefined;
         }
 
         if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
@@ -1081,7 +1085,7 @@ export class FileCopier {
                 // 2) Ensure the body stream is destroyed on abort
                 destroyStreamOnAbort(response.data, abortSignal);
 
-                const contentLengthHeader = response.headers["content-length"];
+                const contentLengthHeader = getAxiosHeaderString(response.headers["content-length"]);
                 if (contentLengthHeader !== undefined) {
                     const n = Number(contentLengthHeader);
                     if (!Number.isFinite(n) || n !== workItem.contentLength) {
@@ -1399,7 +1403,7 @@ export class FileCopier {
                     throw new McmaException(msg);
                 }
 
-                const contentRange = response.headers["content-range"];
+                const contentRange = getAxiosHeaderString(response.headers["content-range"]);
                 if (!contentRange) {
                     const msg = "Missing Content-Range header in partial response";
                     this.logInfo(workItem, msg);
@@ -1422,7 +1426,7 @@ export class FileCopier {
                     throw new McmaException(msg);
                 }
 
-                const contentLengthHeader = response.headers["content-length"];
+                const contentLengthHeader = getAxiosHeaderString(response.headers["content-length"]);
                 if (contentLengthHeader !== undefined) {
                     const n = Number(contentLengthHeader);
                     if (!Number.isFinite(n) || n !== workItem.multipartData.segment.length) {
@@ -1612,4 +1616,17 @@ function upperBoundByPriority(array: WorkItem[], value: WorkItem): number {
         }
     }
     return low;
+}
+
+function getAxiosHeaderString(value: unknown): string | undefined {
+    if (typeof value === "string") {
+        return value;
+    }
+    if (typeof value === "number" || typeof value === "boolean") {
+        return String(value);
+    }
+    if (Array.isArray(value)) {
+        return value.join(", ");
+    }
+    return undefined;
 }

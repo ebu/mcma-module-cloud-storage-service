@@ -84,6 +84,19 @@ export async function restoreFiles(providers: ProviderCollection, jobAssignmentH
         } catch (error) {
             if (error.name === "RestoreAlreadyInProgress") {
                 logger.warn(error);
+            } else if (error.name === "GlacierExpeditedRetrievalNotAvailable") {
+                const restoreObject = await s3Client.send(new RestoreObjectCommand({
+                    Bucket: file.bucket,
+                    Key: file.key,
+                    RestoreRequest: {
+                        Days: durationInDays,
+                        GlacierJobParameters: {
+                            Tier: Tier.Standard
+                        }
+                    }
+                }));
+
+                logger.info(restoreObject);
             } else {
                 throw error;
             }
