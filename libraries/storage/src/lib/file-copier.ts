@@ -538,6 +538,9 @@ export class FileCopier {
                         }
                     }
                 }
+            } else {
+                // if it's not a locator type which we can scan as a folder, we will simply treat it as a file.
+                treatAsFile = true;
             }
         } catch (error) {
             if (abortSignal.aborted) {
