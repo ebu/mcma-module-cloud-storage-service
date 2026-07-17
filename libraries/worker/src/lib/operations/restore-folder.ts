@@ -6,7 +6,7 @@ import { isS3Locator } from "@mcma/aws-s3";
 import { getTableName } from "@mcma/data";
 
 import { RestorePriority, buildRestoreWorkItemId, RestoreWorkItem } from "@local/storage";
-import { scanSourceFolderForRestore } from "./utils";
+import { matchesPathFilter, scanSourceFolderForRestore } from "./utils";
 
 export async function restoreFolder(providers: ProviderCollection, jobAssignmentHelper: ProcessJobAssignmentHelper<StorageJob>, ctx: WorkerContext) {
     const logger = jobAssignmentHelper.logger;
@@ -52,6 +52,22 @@ export async function restoreFolder(providers: ProviderCollection, jobAssignment
         durationInDays = 3;
     }
 
+    let pathRegex: RegExp | undefined;
+    const pathFilter = jobInput.pathFilter as string;
+
+    if (pathFilter) {
+        try {
+            pathRegex = new RegExp(pathFilter, "i");
+        } catch {
+            await jobAssignmentHelper.fail(new ProblemDetail({
+                type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/path-filter-invalid",
+                title: "Provided input pathFilter is invalid",
+                detail: `Value '${pathFilter}' is not a valid regular expression`,
+            }));
+            return;
+        }
+    }
+
     const files = await scanSourceFolderForRestore(folder, ctx);
 
     if (files.length === 0) {
@@ -66,6 +82,10 @@ export async function restoreFolder(providers: ProviderCollection, jobAssignment
     for (const file of files) {
         if (!isS3Locator(file)) {
             throw new McmaException("Should not arrive here");
+        }
+
+        if (!matchesPathFilter(folder, file, pathRegex)) {
+            continue;
         }
 
         const s3Client = await ctx.storageClientFactory.getS3Client(file.bucket, file.region);

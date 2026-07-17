@@ -35,3 +35,16 @@ export async function scanSourceFolderForRestore(folder: Locator, ctx: WorkerCon
 
     return files;
 }
+
+export function matchesPathFilter(sourceFolder: Locator, file: Locator, pathRegex?: RegExp): boolean {
+    if (!pathRegex) {
+        return true;
+    }
+
+    if (isS3Locator(sourceFolder) && isS3Locator(file)) {
+        const relativePath = file.key.substring(sourceFolder.key.length);
+        return pathRegex.test(relativePath);
+    }
+
+    return true;
+}

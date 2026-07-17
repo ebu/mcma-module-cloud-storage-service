@@ -47,6 +47,7 @@ export interface FileCopierConfig {
     maxConcurrency?: number;
     multipartSize?: number;
     multipartSegmentBatchSize?: number;
+    pathFilter?: string;
     getS3Client: (bucket: string, region?: string) => Promise<S3Client>;
     getContainerClient: (account: string, container: string) => Promise<ContainerClient>;
     progressUpdate?: (filesTotal: number, filesCopied: number, bytesTotal: number, bytesCopied: number) => Promise<void>;
@@ -63,6 +64,7 @@ export class FileCopier {
     private readonly activeWorkItems: ActiveWorkItem[];
     private readonly delayedMultipartCompletes: Set<string>;
     private readonly logger?: Logger;
+    private readonly pathRegex?: RegExp;
 
     private destinationUrls: UrlTrie;
 
@@ -80,6 +82,14 @@ export class FileCopier {
         this.activeWorkItems = [];
         this.delayedMultipartCompletes = new Set<string>();
         this.destinationUrls = new UrlTrie();
+
+        if (config.pathFilter) {
+            try {
+                this.pathRegex = new RegExp(config.pathFilter, "i");
+            } catch (error) {
+                throw new McmaException(`Invalid pathFilter regular expression: ${config.pathFilter}`);
+            }
+        }
 
         this.filesTotal = 0;
         this.filesCopied = 0;
@@ -758,11 +768,16 @@ export class FileCopier {
                         continue;
                     }
 
+                    const relativePath = content.Key.substring(sourceFolder.locator.key.length);
+                    if (!this.matchesPathFilter(relativePath)) {
+                        continue;
+                    }
+
                     const sourceFile: SourceFile = {
                         locator: new S3Locator({
                             url: await buildS3Url(sourceFolder.locator.bucket, content.Key, sourceFolder.locator.region)
                         }),
-                        egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + content.Key.substring(sourceFolder.locator.key.length) : undefined,
+                        egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + relativePath : undefined,
                     };
 
                     const destinationFile = await buildDestinationFile(sourceFolder, sourceFile, destinationFolder);
@@ -806,11 +821,16 @@ export class FileCopier {
                 continuationToken = response.continuationToken;
 
                 for (const blob of response.segment.blobItems) {
+                    const relativePath = blob.name.substring(sourceFolder.locator.blobName.length);
+                    if (!this.matchesPathFilter(relativePath)) {
+                        continue;
+                    }
+
                     const sourceFile: SourceFile = {
                         locator: new BlobStorageLocator({
                             url: buildBlobStorageUrl(sourceFolder.locator.account, sourceFolder.locator.container, blob.name)
                         }),
-                        egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + blob.name.substring(sourceFolder.locator.blobName.length) : undefined,
+                        egressUrl: sourceFolder.egressUrl ? sourceFolder.egressUrl + relativePath : undefined,
                     };
 
                     const destinationFile = await buildDestinationFile(sourceFolder, sourceFile, destinationFolder);
@@ -1572,6 +1592,10 @@ export class FileCopier {
                 }, 1000);
             }
         }
+    }
+
+    private matchesPathFilter(path: string): boolean {
+        return !this.pathRegex || this.pathRegex.test(path);
     }
 }
 

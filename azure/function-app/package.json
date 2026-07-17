@@ -6,9 +6,9 @@
     "license": "Apache-2.0",
     "main": "src/index.js",
     "dependencies": {
-        "@azure/identity": "^4.13.0",
-        "@azure/keyvault-secrets": "^4.10.0",
-        "@azure/storage-blob": "^12.31.0",
+        "@azure/identity": "^4.13.1",
+        "@azure/keyvault-secrets": "^4.11.2",
+        "@azure/storage-blob": "^12.33.0",
         "@mcma/api": "1.1.4",
         "@mcma/azure-cosmos-db": "1.1.4",
         "@mcma/azure-functions-api": "1.1.4",
@@ -21,10 +21,23 @@
         "@mcma/secrets": "1.1.4",
         "@mcma/worker": "1.1.4",
         "@mcma/worker-invoker": "1.1.4",
-        "uuid": "^11.1.0"
+        "uuid": "^11.1.1"
+    },
+    "overrides": {
+        "@opentelemetry/core": "^2.8.0",
+        "@opentelemetry/resources": "^2.8.0",
+        "@opentelemetry/sdk-metrics": "^2.8.0",
+        "@opentelemetry/sdk-trace-base": "^2.8.0",
+        "@opentelemetry/exporter-logs-otlp-http": "^0.219.0",
+        "@opentelemetry/exporter-metrics-otlp-http": "^0.219.0",
+        "@opentelemetry/exporter-metrics-otlp-proto": "^0.219.0",
+        "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
+        "@opentelemetry/otlp-exporter-base": "^0.219.0",
+        "@opentelemetry/otlp-transformer": "^0.219.0",
+        "@opentelemetry/sdk-logs": "^0.219.0"
     },
     "devDependencies": {
-        "@azure/functions": "^4.11.2",
-        "@types/node": "^22.19.15"
+        "@azure/functions": "^4.16.2",
+        "@types/node": "^22.20.1"
     }
 }

@@ -7,7 +7,7 @@ import { getTableName } from "@mcma/data";
 import { RestorePriority, RestoreWorkItem, buildRestoreWorkItemId } from "@local/storage";
 
 import { WorkerContext } from "../worker-context";
-import { scanSourceFolderForRestore } from "./utils";
+import { matchesPathFilter, scanSourceFolderForRestore } from "./utils";
 
 export async function restoreFiles(providers: ProviderCollection, jobAssignmentHelper: ProcessJobAssignmentHelper<StorageJob>, ctx: WorkerContext) {
     const logger = jobAssignmentHelper.logger;
@@ -45,10 +45,30 @@ export async function restoreFiles(providers: ProviderCollection, jobAssignmentH
         return;
     }
 
+    let pathRegex: RegExp | undefined;
+    const pathFilter = jobInput.pathFilter as string;
+
+    if (pathFilter) {
+        try {
+            pathRegex = new RegExp(pathFilter, "i");
+        } catch {
+            await jobAssignmentHelper.fail(new ProblemDetail({
+                type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/path-filter-invalid",
+                title: "Provided input pathFilter is invalid",
+                detail: `Value '${pathFilter}' is not a valid regular expression`,
+            }));
+            return;
+        }
+    }
+
     const files: Locator[] = [];
     for (const locator of locators) {
         const scannedFiles = await scanSourceFolderForRestore(locator, ctx);
         for (const scannedFile of scannedFiles) {
+            if (!matchesPathFilter(locator, scannedFile, pathRegex)) {
+                continue;
+            }
+
             files.push(scannedFile);
         }
     }

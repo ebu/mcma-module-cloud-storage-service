@@ -65,6 +65,12 @@ resource "mcma_job_profile" "copy_files" {
     name = "transfers"
     type = "{ source: Locator, sourceEgressUrl?: string, destination: Locator, destinationStorageClass?: string }[]"
   }
+
+  input_parameter {
+    name     = "pathFilter"
+    type     = "string"
+    optional = true
+  }
 }
 
 resource "mcma_job_profile" "copy_folder" {
@@ -88,6 +94,12 @@ resource "mcma_job_profile" "copy_folder" {
 
   input_parameter {
     name     = "destinationStorageClass"
+    type     = "string"
+    optional = true
+  }
+
+  input_parameter {
+    name     = "pathFilter"
     type     = "string"
     optional = true
   }
@@ -133,6 +145,12 @@ resource "mcma_job_profile" "restore_files" {
     type     = "number"
     optional = true
   }
+
+  input_parameter {
+    name     = "pathFilter"
+    type     = "string"
+    optional = true
+  }
 }
 
 resource "mcma_job_profile" "restore_folder" {
@@ -152,6 +170,12 @@ resource "mcma_job_profile" "restore_folder" {
   input_parameter {
     name     = "durationInDays"
     type     = "number"
+    optional = true
+  }
+
+  input_parameter {
+    name     = "pathFilter"
+    type     = "string"
     optional = true
   }
 }

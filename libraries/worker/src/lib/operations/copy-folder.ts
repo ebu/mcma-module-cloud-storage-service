@@ -36,9 +36,12 @@ export async function copyFolder(providers: ProviderCollection, jobAssignmentHel
     const bailOutDate = new Date(ctx.functionTimeLimit.getTime() - 10000);
     const abortTimeout = ctx.functionTimeLimit.getTime() - Date.now() - 30000;
 
+    const pathFilter = jobInput.pathFilter as string;
+
     const fileCopier = new FileCopier({
         maxConcurrency: Number.parseInt(MAX_CONCURRENCY),
         multipartSize: Number.parseInt(MULTIPART_SIZE),
+        pathFilter,
         logger,
         getS3Client,
         getContainerClient,

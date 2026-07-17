@@ -22,6 +22,8 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
     try {
         await jobAssignmentHelper.initialize();
 
+        const jobInput = jobAssignmentHelper.jobInput;
+
         if (jobAssignmentHelper.job.status === JobStatus.Completed || jobAssignmentHelper.job.status === JobStatus.Failed || jobAssignmentHelper.job.status === JobStatus.Canceled) {
             return;
         }
@@ -43,9 +45,12 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
         const bailOutDate = new Date(ctx.functionTimeLimit.getTime() - 10000);
         const abortTimeout = ctx.functionTimeLimit.getTime() - Date.now() - 30000;
 
+        const pathFilter = jobInput.pathFilter as string;
+
         const fileCopier = new FileCopier({
             maxConcurrency: Number.parseInt(MAX_CONCURRENCY),
             multipartSize: Number.parseInt(MULTIPART_SIZE),
+            pathFilter,
             logger,
             getS3Client,
             getContainerClient,
