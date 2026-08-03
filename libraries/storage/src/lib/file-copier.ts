@@ -619,6 +619,58 @@ export class FileCopier {
     }
 
     /**
+     * Confirms whether a zero Content-Length from HEAD represents an empty file or incorrect HTTP metadata.
+     */
+    private async disambiguateZeroHttpContentLength(sourceUrl: string, abortSignal: AbortSignal) {
+        const response = await raceAbort(
+            abortSignal,
+            axios.get(sourceUrl, {
+                ...this.config.axiosConfig,
+                headers: {
+                    ...(this.config.axiosConfig?.headers ?? {}),
+                    Range: "bytes=0-0",
+                },
+                responseType: "stream",
+                decompress: false,
+                validateStatus: status => status === 200 || status === 206 || status === 416,
+                signal: abortSignal,
+            })
+        );
+
+        try {
+            const contentLengthHeader = getAxiosHeaderString(response.headers["content-length"]);
+            const contentRangeHeader = getAxiosHeaderString(response.headers["content-range"]);
+
+            let contentLength: number | undefined;
+            if (response.status === 206) {
+                const match = /^bytes\s+0-0\/(\d+)$/i.exec(contentRangeHeader ?? "");
+                if (!match) {
+                    throw new McmaException(`Invalid Content-Range '${contentRangeHeader}'`);
+                }
+                contentLength = Number(match[1]);
+            } else if (response.status === 200) {
+                // The server ignored the range request. Content-Length describes the full response.
+                contentLength = Number(contentLengthHeader);
+            } else {
+                // Byte zero is unsatisfiable for an empty file. Standards-compliant servers include
+                // "Content-Range: bytes */0"; keep HEAD's zero as a compatibility fallback if omitted.
+                const match = /^bytes\s+\*\/(\d+)$/i.exec(contentRangeHeader ?? "");
+                contentLength = match ? Number(match[1]) : 0;
+            }
+
+            if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
+                throw new McmaException("Failed to obtain content length from HTTP range response");
+            }
+
+            return contentLength;
+        } finally {
+            if (typeof response.data?.destroy === "function") {
+                response.data.destroy();
+            }
+        }
+    }
+
+    /**
      * The goal of start ScanFile is to get the header metadata such as length, type, and lastModified
      */
     private async processWorkItemScanFile(workItem: WorkItem, abortSignal: AbortSignal) {
@@ -686,6 +738,15 @@ export class FileCopier {
             contentLength = Number(contentLengthHeader);
             contentType = contentTypeHeader;
             lastModified = lastModifiedHeader ? new Date(lastModifiedHeader) : undefined;
+
+            // Some HTTP origins report Content-Length: 0 for HEAD while returning a non-empty GET.
+            // A one-byte range request distinguishes those responses from genuine empty files.
+            if (contentLength === 0) {
+                contentLength = await this.disambiguateZeroHttpContentLength(
+                    workItem.sourceFile.egressUrl ?? workItem.sourceFile.locator.url,
+                    abortSignal
+                );
+            }
         }
 
         if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
