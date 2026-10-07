@@ -200,6 +200,11 @@ export class FileCopier {
             throw new McmaException("Can't invoke method FileCopier:runUntil if it's already invoked");
         }
 
+        if (runUntilDate <= new Date()) {
+            this.logger?.debug("FileCopier:runUntil() - Work deadline already reached");
+            return;
+        }
+
         this.running = true;
         try {
             this.maxConcurrency = this.config.maxConcurrency > 0 && this.config.maxConcurrency <= 64 ? this.config.maxConcurrency : MAX_CONCURRENCY;
@@ -422,7 +427,9 @@ export class FileCopier {
                         promise,
                         abortController,
                     });
-                } else {
+                } else if (this.activeWorkItems.length === 0) {
+                    // When stopping, maxConcurrency is zero. Do not delay consuming active promises
+                    // that have already settled after their abort controllers were triggered.
                     await Utils.sleep(250);
                 }
             }
