@@ -3,7 +3,7 @@ import { getTableName } from "@mcma/data";
 import { ProcessJobAssignmentHelper, ProviderCollection, WorkerRequest } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
-import { FileCopier, logError } from "@local/storage";
+import { FileCopier, FileCopierState, logError } from "@local/storage";
 
 import { WorkerContext } from "../worker-context";
 
@@ -41,9 +41,13 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             }
         };
 
-        const runUntilDate = new Date(ctx.functionTimeLimit.getTime() - 120000);
+        const runUntilDate = new Date(ctx.functionTimeLimit.getTime() - 60000);
         const bailOutDate = new Date(ctx.functionTimeLimit.getTime() - 10000);
         const abortTimeout = ctx.functionTimeLimit.getTime() - Date.now() - 30000;
+        const checkpointUpdate = async (state: FileCopierState) => {
+            logger.debug(`Saving live FileCopier checkpoint with ${state.workItems.length} unfinished work items`);
+            await ctx.saveFileCopierState(jobAssignmentDatabaseId, state);
+        };
 
         const pathFilter = jobInput.pathFilter as string;
 
@@ -55,6 +59,7 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             getS3Client,
             getContainerClient,
             progressUpdate,
+            checkpointUpdate,
             axiosConfig: {
                 signal: AbortSignal.timeout(abortTimeout)
             }
@@ -77,48 +82,36 @@ export async function continueCopy(providers: ProviderCollection, workerRequest:
             await fileCopier.setState(state);
         }
 
-        let continueRunning = true;
-        let workToDo = true;
-        do {
-            const oneMinuteFromNow = new Date(Date.now() + 60000);
-            continueRunning = oneMinuteFromNow < runUntilDate;
+        await fileCopier.runUntil(runUntilDate, bailOutDate);
 
-            await fileCopier.runUntil(continueRunning ? oneMinuteFromNow : runUntilDate, bailOutDate);
+        const error = fileCopier.getError();
+        if (error) {
+            logger.error("Failing job as copy resulted in a failure");
+            logError(logger, error);
 
-            const error = fileCopier.getError();
-            if (error) {
-                logger.error("Failing job as copy resulted in a failure");
-                logError(logger, error);
+            await jobAssignmentHelper.fail(new ProblemDetail({
+                type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/copy-failure",
+                title: "Copy failure",
+                detail: error.message,
+            }));
+            return;
+        }
 
-                await jobAssignmentHelper.fail(new ProblemDetail({
-                    type: "uri://mcma.ebu.ch/rfc7807/cloud-storage-service/copy-failure",
-                    title: "Copy failure",
-                    detail: error.message,
-                }));
-                return;
-            }
+        const state = await fileCopier.getState();
+        if (state.workItems.length > 0) {
+            logger.info(`${state.workItems.length} work items remaining. Storing FileCopierState`);
+            await ctx.saveFileCopierState(jobAssignmentDatabaseId, state);
 
-            const state = await fileCopier.getState();
-            workToDo = state.workItems.length > 0;
-
-            if (workToDo) {
-                logger.info(`${state.workItems.length} work items remaining. Storing FileCopierState`);
-
-                await ctx.saveFileCopierState(jobAssignmentDatabaseId, state);
-
-                if (!continueRunning) {
-                    logger.info(`Invoking worker again`);
-                    await ctx.workerInvoker.invoke(getWorkerFunctionId(), {
-                        operationName: "ContinueCopy",
-                        input: {
-                            jobAssignmentDatabaseId,
-                        },
-                        tracker: jobAssignmentHelper.workerRequest.tracker
-                    });
-                    return;
-                }
-            }
-        } while (continueRunning && workToDo);
+            logger.info(`Invoking worker again`);
+            await ctx.workerInvoker.invoke(getWorkerFunctionId(), {
+                operationName: "ContinueCopy",
+                input: {
+                    jobAssignmentDatabaseId,
+                },
+                tracker: jobAssignmentHelper.workerRequest.tracker
+            });
+            return;
+        }
 
         // state no longer needed. finished copying.
         await ctx.deleteFileCopierState(jobAssignmentDatabaseId);

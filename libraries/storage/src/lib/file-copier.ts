@@ -33,6 +33,8 @@ const MB = 1024 * KB;
 const MULTIPART_SIZE = 64 * MB;
 const MIN_S3_PART_SIZE = 5 * MB;
 const MAX_AZURE_BLOCK_SIZE = 4000 * MB;
+const CHECKPOINT_INTERVAL = 60_000;
+const ACTIVE_WORK_GRACE_PERIOD = 15_000;
 
 export interface FileCopierState {
     filesTotal: number;
@@ -51,6 +53,11 @@ export interface FileCopierConfig {
     getS3Client: (bucket: string, region?: string) => Promise<S3Client>;
     getContainerClient: (account: string, container: string) => Promise<ContainerClient>;
     progressUpdate?: (filesTotal: number, filesCopied: number, bytesTotal: number, bytesCopied: number) => Promise<void>;
+    checkpointUpdate?: (state: FileCopierState) => Promise<void>;
+    checkpointInterval?: number;
+    activeWorkGracePeriod?: number;
+    pollInterval?: number;
+    delayedMultipartCompleteInterval?: number;
     axiosConfig?: AxiosRequestConfig;
     logger?: Logger;
     debug?: boolean;
@@ -59,10 +66,14 @@ export interface FileCopierConfig {
 export class FileCopier {
     private readonly multipartSize: number;
     private readonly multipartSegmentBatchSize: number;
+    private readonly checkpointInterval: number;
+    private readonly activeWorkGracePeriod: number;
+    private readonly pollInterval: number;
+    private readonly delayedMultipartCompleteInterval: number;
 
     private readonly queuedWorkItems: WorkItem[];
     private readonly activeWorkItems: ActiveWorkItem[];
-    private readonly delayedMultipartCompletes: Set<string>;
+    private readonly delayedMultipartCompletes: Map<string, WorkItem>;
     private readonly logger?: Logger;
     private readonly pathRegex?: RegExp;
 
@@ -76,11 +87,13 @@ export class FileCopier {
     private processing = false;
     private running = false;
     private error?: Error;
+    private checkpointBarrier?: Promise<void>;
+    private releaseCheckpointBarrier?: () => void;
 
     constructor(private config: FileCopierConfig) {
         this.queuedWorkItems = [];
         this.activeWorkItems = [];
-        this.delayedMultipartCompletes = new Set<string>();
+        this.delayedMultipartCompletes = new Map<string, WorkItem>();
         this.destinationUrls = new UrlTrie();
 
         if (config.pathFilter) {
@@ -99,6 +112,10 @@ export class FileCopier {
         this.maxConcurrency = this.config.maxConcurrency > 0 && this.config.maxConcurrency <= 64 ? this.config.maxConcurrency : MAX_CONCURRENCY;
         this.multipartSize = this.config.multipartSize >= MIN_S3_PART_SIZE && this.config.multipartSize <= MAX_AZURE_BLOCK_SIZE ? this.config.multipartSize : MULTIPART_SIZE; // min limit AWS and max limit blob storage
         this.multipartSegmentBatchSize = this.config.multipartSegmentBatchSize > 0 && this.config.multipartSegmentBatchSize <= 1000 ? this.config.multipartSegmentBatchSize : MULTIPART_SEGMENT_BATCH_SIZE;
+        this.checkpointInterval = this.config.checkpointInterval > 0 ? this.config.checkpointInterval : CHECKPOINT_INTERVAL;
+        this.activeWorkGracePeriod = this.config.activeWorkGracePeriod >= 0 ? this.config.activeWorkGracePeriod : ACTIVE_WORK_GRACE_PERIOD;
+        this.pollInterval = this.config.pollInterval > 0 ? this.config.pollInterval : 1000;
+        this.delayedMultipartCompleteInterval = this.config.delayedMultipartCompleteInterval > 0 ? this.config.delayedMultipartCompleteInterval : 1000;
     }
 
     public async setState(state: FileCopierState) {
@@ -162,14 +179,46 @@ export class FileCopier {
             throw new McmaException("Unable to get state while running");
         }
 
-        return {
-            bytesTotal: this.bytesTotal,
-            bytesCopied: this.bytesCopied,
-            filesTotal: this.filesTotal,
-            filesCopied: this.filesCopied,
-            workItems: structuredClone(this.queuedWorkItems),
-            trie: await this.destinationUrls.clone(),
-        };
+        return this.getCheckpointState();
+    }
+
+    /**
+     * Creates a recoverable snapshot without stopping active transfers. Active and delayed work
+     * is deliberately persisted as unfinished so it can safely be replayed after an interruption.
+     */
+    public async getCheckpointState(): Promise<FileCopierState> {
+        while (this.checkpointBarrier) {
+            await this.checkpointBarrier;
+        }
+
+        this.checkpointBarrier = new Promise<void>(resolve => this.releaseCheckpointBarrier = resolve);
+        try {
+            const workItems = structuredClone([
+                ...this.queuedWorkItems,
+                ...this.activeWorkItems.map(activeWorkItem => activeWorkItem.workItem),
+                ...this.delayedMultipartCompletes.values(),
+            ]);
+
+            return {
+                bytesTotal: this.bytesTotal,
+                bytesCopied: this.bytesCopied,
+                filesTotal: this.filesTotal,
+                filesCopied: this.filesCopied,
+                workItems,
+                trie: await this.destinationUrls.clone(),
+            };
+        } finally {
+            const release = this.releaseCheckpointBarrier;
+            this.checkpointBarrier = undefined;
+            this.releaseCheckpointBarrier = undefined;
+            release?.();
+        }
+    }
+
+    private async waitForCheckpoint() {
+        while (this.checkpointBarrier) {
+            await this.checkpointBarrier;
+        }
     }
 
     public addFolder(sourceFolder: SourceFile, destinationFolder: DestinationFile) {
@@ -209,16 +258,29 @@ export class FileCopier {
         try {
             this.maxConcurrency = this.config.maxConcurrency > 0 && this.config.maxConcurrency <= 64 ? this.config.maxConcurrency : MAX_CONCURRENCY;
 
+            if (this.config.checkpointUpdate) {
+                await this.updateCheckpoint();
+                if (runUntilDate <= new Date()) {
+                    this.logger?.debug("FileCopier:runUntil() - Work deadline reached while saving initial checkpoint");
+                    return;
+                }
+            }
+
             this.logger?.debug("FileCopier:runUntil() - Starting process thread");
 
             void this.process();
 
             this.logger?.debug("FileCopier:runUntil() - Wait until timeout, finished work, or an error");
 
+            let nextCheckpointTime = Date.now() + this.checkpointInterval;
             while (runUntilDate > new Date() && (this.activeWorkItems.length > 0 || this.queuedWorkItems.length > 0 || this.delayedMultipartCompletes.size > 0) && !this.error) {
-                await Utils.sleep(1000);
+                await Utils.sleep(this.pollInterval);
                 if (this.config.progressUpdate) {
                     await this.config.progressUpdate(this.filesTotal, this.filesCopied, this.bytesTotal, this.bytesCopied);
+                }
+                if (this.config.checkpointUpdate && Date.now() >= nextCheckpointTime) {
+                    await this.updateCheckpoint();
+                    nextCheckpointTime = Date.now() + this.checkpointInterval;
                 }
             }
 
@@ -232,7 +294,14 @@ export class FileCopier {
 
             this.maxConcurrency = 0;
 
-            const tenSecondsBeforeBailout = new Date(bailOutDate.getTime() - 10000);
+            if (this.config.checkpointUpdate && !this.error && (this.activeWorkItems.length > 0 || this.queuedWorkItems.length > 0 || this.delayedMultipartCompletes.size > 0)) {
+                await this.updateCheckpoint();
+            }
+
+            const abortActiveDate = new Date(Math.min(
+                runUntilDate.getTime() + this.activeWorkGracePeriod,
+                bailOutDate.getTime() - 10000
+            ));
 
             if (this.processing && (this.activeWorkItems.length > 0 || this.delayedMultipartCompletes.size > 0)) {
                 this.logger?.debug("FileCopier:runUntil() - Wait for active work items to finish");
@@ -246,9 +315,8 @@ export class FileCopier {
                         throw new McmaException("FileCopier:runUntil() - Not able to finish workItems in time. Bailing out");
                     }
 
-                    if (!aborted && tenSecondsBeforeBailout < now) {
-                        this.logger?.debug("FileCopier:runUntil() - Reaching 10 seconds before bailout time. Aborting active work items.");
-                        // Abort all active workItems 10 seconds before bail out time
+                    if (!aborted && abortActiveDate <= now) {
+                        this.logger?.debug("FileCopier:runUntil() - Active work grace period reached. Aborting active work items.");
                         for (const activeWorkItem of this.activeWorkItems) {
                             if (!activeWorkItem.abortController.signal.aborted) {
                                 activeWorkItem.abortController.abort();
@@ -257,7 +325,7 @@ export class FileCopier {
                         aborted = true;
                     }
 
-                    await Utils.sleep(1000);
+                    await Utils.sleep(this.pollInterval);
                     if (this.config.progressUpdate) {
                         await this.config.progressUpdate(this.filesTotal, this.filesCopied, this.bytesTotal, this.bytesCopied);
                     }
@@ -274,11 +342,20 @@ export class FileCopier {
                 if (bailOutDate < new Date()) {
                     throw new McmaException("FileCopier:runUntil() - Not able to finish workItems in time. Bailing out");
                 }
-                await Utils.sleep(250);
+                await Utils.sleep(Math.min(this.pollInterval, 250));
             }
         }
 
         this.logger?.debug("FileCopier:runUntil() - End");
+    }
+
+    private async updateCheckpoint() {
+        try {
+            await this.config.checkpointUpdate(await this.getCheckpointState());
+        } catch (error) {
+            this.logger?.warn("FileCopier:runUntil() - Failed to save live checkpoint");
+            logError(this.logger, error);
+        }
     }
 
     public getError() {
@@ -320,6 +397,8 @@ export class FileCopier {
         this.processing = true;
         try {
             while (this.running && (this.queuedWorkItems.length > 0 || this.activeWorkItems.length > 0 || this.delayedMultipartCompletes.size > 0)) {
+                await this.waitForCheckpoint();
+
                 // if we have active work items AND we have reached either max concurrency or an empty queue we need to wait for active work items to complete
                 if (this.activeWorkItems.length > 0 && (this.activeWorkItems.length >= this.maxConcurrency || this.queuedWorkItems.length === 0)) {
                     const activeWorkItem = await Promise.race(this.activeWorkItems.map(activeWorkItem =>
@@ -331,6 +410,8 @@ export class FileCopier {
                             return activeWorkItem;
                         })
                     ));
+                    await this.waitForCheckpoint();
+
                     const idx = this.activeWorkItems.indexOf(activeWorkItem);
                     this.activeWorkItems.splice(idx, 1);
 
@@ -430,7 +511,7 @@ export class FileCopier {
                 } else if (this.activeWorkItems.length === 0) {
                     // When stopping, maxConcurrency is zero. Do not delay consuming active promises
                     // that have already settled after their abort controllers were triggered.
-                    await Utils.sleep(250);
+                    await Utils.sleep(Math.min(this.pollInterval, 250));
                 }
             }
         } catch (error) {
@@ -1652,13 +1733,22 @@ export class FileCopier {
             const key = workItem.destinationFile.locator.url;
 
             if (!this.delayedMultipartCompletes.has(key)) {
-                this.delayedMultipartCompletes.add(key);
+                this.delayedMultipartCompletes.set(key, workItem);
 
                 setTimeout(() => {
-                    this.delayedMultipartCompletes.delete(key);
-                    this.queueWorkItem(workItem);
-                }, 1000);
+                    void this.releaseDelayedMultipartComplete(key);
+                }, this.delayedMultipartCompleteInterval);
             }
+        }
+    }
+
+    private async releaseDelayedMultipartComplete(key: string) {
+        await this.waitForCheckpoint();
+
+        const workItem = this.delayedMultipartCompletes.get(key);
+        if (workItem) {
+            this.delayedMultipartCompletes.delete(key);
+            this.queueWorkItem(workItem);
         }
     }
 

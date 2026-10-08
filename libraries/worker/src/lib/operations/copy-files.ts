@@ -3,7 +3,7 @@ import { JobStatus, Locator, ProblemDetail, StorageJob, Utils } from "@mcma/core
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
-import { FileCopier, SourceFile, DestinationFile, logError } from "@local/storage";
+import { FileCopier, FileCopierState, SourceFile, DestinationFile, logError } from "@local/storage";
 import { WorkerContext } from "../worker-context";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
@@ -32,9 +32,13 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
         }
     };
 
-    const runUntilDate = new Date(ctx.functionTimeLimit.getTime() - 120000);
+    const runUntilDate = new Date(ctx.functionTimeLimit.getTime() - 60000);
     const bailOutDate = new Date(ctx.functionTimeLimit.getTime() - 10000);
     const abortTimeout = ctx.functionTimeLimit.getTime() - Date.now() - 30000;
+    const checkpointUpdate = async (state: FileCopierState) => {
+        logger.debug(`Saving live FileCopier checkpoint with ${state.workItems.length} unfinished work items`);
+        await ctx.saveFileCopierState(jobAssignmentDatabaseId, state);
+    };
 
     const pathFilter = jobInput.pathFilter as string;
 
@@ -46,6 +50,7 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
         getS3Client,
         getContainerClient,
         progressUpdate,
+        checkpointUpdate,
         axiosConfig: {
             signal: AbortSignal.timeout(abortTimeout)
         }
@@ -110,6 +115,7 @@ export async function copyFiles(providers: ProviderCollection, jobAssignmentHelp
         return;
     }
 
+    await ctx.deleteFileCopierState(jobAssignmentDatabaseId);
     await Utils.sleep(1000);
     logger.info("Copy was a success, marking job as Completed");
     await jobAssignmentHelper.complete();
