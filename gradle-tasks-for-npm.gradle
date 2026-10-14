@@ -114,6 +114,7 @@ task tsc(type: Exec) {
     inputs.file("package.json")
     inputs.file("tsconfig.json")
     inputs.file "${project.rootDir}/tsconfig.json"
+    inputs.file "${project.rootDir}/package-lock.json"
     outputs.dir("build/staging")
     commandLine tscExecutable
 

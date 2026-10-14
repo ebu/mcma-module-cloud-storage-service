@@ -32,5 +32,8 @@
         "@mcma/secrets": "1.1.4",
         "@mcma/worker": "1.1.4",
         "@mcma/worker-invoker": "1.1.4"
+    },
+    "engines": {
+        "node": ">=22.0.0"
     }
 }

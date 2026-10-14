@@ -39,5 +39,8 @@
     "devDependencies": {
         "@azure/functions": "^4.16.2",
         "@types/node": "^22.20.1"
+    },
+    "engines": {
+        "node": ">=22.0.0"
     }
 }
