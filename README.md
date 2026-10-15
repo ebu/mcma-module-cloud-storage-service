@@ -23,3 +23,11 @@ GitHub Actions uses standard hosted runners with read-only repository permission
 ## ESM packaging
 
 Every application and local library declares `"type": "module"`. Lambda ZIPs include the application `package.json` alongside `index.js`; Azure ZIPs retain their `package.json` and `src/index.js` entry point. Relative imports include explicit `.js` filenames. Gradle still builds local libraries through `npmPack` task dependencies and installs their tarballs before compiling consumers.
+
+## Temporary integration with unpublished MCMA ESM packages
+
+First run npm ci and npm run verify in the ESM MCMA Libraries checkout. Set MCMA_LIBRARIES_ROOT to its absolute path before running this application's npm run verify or Gradle build. Gradle also accepts -PmcmaLibrariesRoot=/path/to/mcma-libraries.
+
+The temporary bridge packs the required MCMA libraries and installs their tarballs alongside the existing Gradle npmPack dependencies. It temporarily adjusts MCMA versions during installation and in generated local-library manifests, restoring source manifests afterward and leaving lockfiles unchanged. CI checks out the reviewed library commit explicitly. No npm publication is involved.
+
+Remove the separate temporary-integration commit after publishing the ESM libraries and updating the application's regular MCMA dependencies and lockfiles. Keep the ESM source and packaging changes.

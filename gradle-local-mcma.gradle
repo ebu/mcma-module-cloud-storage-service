@@ -1,0 +1,12 @@
+// Temporary ESM migration bridge; the sibling library checkout must be built first.
+ext.localMcmaRoot = providers.gradleProperty("mcmaLibrariesRoot")
+    .orElse(providers.environmentVariable("MCMA_LIBRARIES_ROOT")).getOrNull()
+
+if (localMcmaRoot) {
+    tasks.register("packLocalMcma", Exec) {
+        inputs.files fileTree(dir: localMcmaRoot, includes: ["**/dist/**", "**/package.json"], excludes: ["**/node_modules/**", "**/build/**"])
+        inputs.file "scripts/local-mcma.cjs"
+        outputs.dir "build/local-mcma"
+        commandLine nodeExecutable + ["scripts/local-mcma.cjs", "pack", localMcmaRoot]
+    }
+}
