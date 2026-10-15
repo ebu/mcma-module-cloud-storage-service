@@ -3,7 +3,7 @@ import { ResourceManagerProvider } from "@mcma/client";
 import { ProcessJobAssignmentOperation, ProviderCollection, Worker } from "@mcma/worker";
 import { SecretsProvider } from "@mcma/secrets";
 import { DocumentDatabaseTableProvider } from "@mcma/data";
-import { copyFile, copyFolder, continueCopy, copyFiles, restoreFile, restoreFiles, restoreFolder, completeRestore } from "./operations";
+import { copyFile, copyFolder, continueCopy, copyFiles, restoreFile, restoreFiles, restoreFolder, completeRestore } from "./operations/index.js";
 
 export function buildWorker(dbTableProvider: DocumentDatabaseTableProvider, loggerProvider: LoggerProvider, resourceManagerProvider: ResourceManagerProvider, secretsProvider: SecretsProvider) {
     const providerCollection = new ProviderCollection({

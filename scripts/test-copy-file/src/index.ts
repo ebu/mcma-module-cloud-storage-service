@@ -10,7 +10,7 @@ import { Job, JobParameterBag, JobProfile, JobStatus, Locator, McmaException, Mc
 import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
 import { ContainerClient } from "@azure/storage-blob";
 import { BlobStorageLocator, buildBlobStorageUrl, isBlobStorageLocator } from "@mcma/azure-blob-storage";
-import { S3Helper } from "./s3-helper";
+import { S3Helper } from "./s3-helper.js";
 
 const credentials = fromIni();
 

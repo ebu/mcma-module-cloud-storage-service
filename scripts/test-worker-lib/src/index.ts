@@ -13,9 +13,9 @@ import { ConsoleLogger, Locator, LocatorStatus, Logger, McmaException, Utils } f
 import * as mime from "mime-types";
 
 import { DestinationFile, FileCopier, FileCopierState, SourceFile, UrlTrie } from "@local/storage";
-import { S3Helper } from "./s3-helper";
+import { S3Helper } from "./s3-helper.js";
 
-const TERRAFORM_OUTPUT = path.resolve(__dirname, "../../../../deployment/terraform.output.json");
+const TERRAFORM_OUTPUT = path.resolve(import.meta.dirname, "../../../../deployment/terraform.output.json");
 const DEFAULT_TEST_FILE_SIZE = 2_000_000_000;
 const CRASH_EXIT_CODE = 86;
 const MIN_MULTIPART_FILE_SIZE = 5 * 1024 * 1024;
@@ -253,7 +253,7 @@ async function generateRandomFile(filename: string, size: number): Promise<strin
 
 async function prepareTestFile(): Promise<{ filename: string, size: number, sha256: string }> {
     const configuredFilename = process.env.FILE_COPIER_TEST_FILE;
-    const filename = path.resolve(configuredFilename ?? path.resolve(__dirname, "../test-data/random-2gb.bin"));
+    const filename = path.resolve(configuredFilename ?? path.resolve(import.meta.dirname, "../test-data/random-2gb.bin"));
     const requestedSize = readIntegerSetting("FILE_COPIER_TEST_FILE_SIZE", DEFAULT_TEST_FILE_SIZE);
     const regenerate = process.env.FILE_COPIER_TEST_REGENERATE === "true";
     let stats: fs.Stats | undefined;
@@ -332,7 +332,7 @@ async function uploadFileToS3(filename: string, sha256: string): Promise<S3Locat
 
 async function buildManifest(route: TestRoute, suiteRunId: string, testFile: { filename: string, size: number, sha256: string }): Promise<TestManifest> {
     const runId = `${suiteRunId}-${route}`;
-    const stateDirectory = path.resolve(__dirname, "../live-checkpoint", runId);
+    const stateDirectory = path.resolve(import.meta.dirname, "../live-checkpoint", runId);
     await fs.promises.mkdir(stateDirectory, { recursive: true });
 
     const providers = getProviders(route);
@@ -521,7 +521,7 @@ async function verifyDestination(manifest: TestManifest, provider: CloudProvider
 
 function runChild(phase: TestPhase, manifestPath: string, shouldCrash: boolean, crashNumber: number): Promise<number | null> {
     return new Promise((resolve, reject) => {
-        const child = fork(__filename, [
+        const child = fork(import.meta.filename, [
             `--phase=${phase}`,
             `--manifest=${manifestPath}`,
             `--crash=${shouldCrash}`,

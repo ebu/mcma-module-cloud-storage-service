@@ -88,7 +88,7 @@ function build(pkg) {
     else for (const dep of deps) copyBuiltPackage(dep,path.join(pkg.dir,'node_modules',dep.manifest.name));
     resetGenerated(pkg.output);
     run([compiler,'-p','tsconfig.json'],pkg.dir);
-    if(cloud && pkg.group === 'libraries') fs.copyFileSync(path.join(pkg.dir,'package.json'),path.join(pkg.output,'package.json'));
+    if(cloud) fs.copyFileSync(path.join(pkg.dir,'package.json'),path.join(pkg.output,'package.json'));
     if ((!cloud && ['@mcma/core','@mcma/aws-logger'].includes(pkg.manifest.name)) || (cloud && pkg.manifest.name==='@local/storage')) {
         resetGenerated(path.join(pkg.dir,'build/test'));
         run([npm,'test'],pkg.dir);
@@ -124,10 +124,12 @@ if(!cloud) {
     for(const pkg of packages.filter(p=>p.group==='aws')) {
         assert.ok(fs.existsSync(path.join(pkg.output,'index.js')),`Missing AWS entry point: ${pkg.dir}`);
         run(['--check',path.join(pkg.output,'index.js')]);
+        run([path.join(root,'scripts/check-entrypoint.mjs'),path.join(pkg.output,'index.js'),'aws']);
     }
     const azure=packages.find(p=>p.dir.endsWith(path.join('azure','function-app')));
     assert.ok(fs.existsSync(path.join(azure.output,azure.manifest.main)),'Missing Azure main entry point');
     run(['--check',path.join(azure.output,azure.manifest.main)]);
+    run([path.join(root,'scripts/check-entrypoint.mjs'),path.join(azure.output,azure.manifest.main),'azure']);
     for(const pkg of packages.filter(p=>['aws','azure'].includes(p.group))) {
         for(const dep of localDependencies(pkg)) assert.ok(fs.existsSync(path.join(pkg.dir,'node_modules',dep.manifest.name,dep.manifest.main)),`Missing local dependency ${dep.manifest.name}`);
     }

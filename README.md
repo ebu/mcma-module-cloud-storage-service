@@ -14,8 +14,12 @@ npm run verify
 ```
 
 The compiler is pinned to TypeScript 5.9.3. Run root `npm ci` before using Gradle too; Gradle uses the same local compiler.
-Verification reinstalls package dependencies with `npm ci`, compiles the packages, and runs local tests. It replaces generated build output and installed copies of local packages. It does not update lockfiles, publish packages, deploy services, or require cloud credentials. Runtime dependencies and CommonJS output are retained.
+Verification reinstalls package dependencies with `npm ci`, compiles the packages, and runs local tests. It replaces generated build output and installed copies of local packages. It does not update lockfiles, publish packages, deploy services, or require cloud credentials. Runtime dependency versions are retained. The application and local libraries now emit ESM using TypeScript’s fixed `Node20` module mode.
 
-The existing storage checkpoint tests run without cloud access. Packaging checks validate staged application entry points and local libraries; they do not start the Azure Functions host or invoke cloud handlers. Real-cloud recovery scripts remain explicit integration tests and are not run by this command.
+The existing storage checkpoint tests run without cloud access. Packaging checks load staged AWS and Azure entry points as ESM using synthetic configuration and verify local libraries; they do not start the Azure Functions host or invoke cloud handlers. Real-cloud recovery scripts remain explicit integration tests and are not run by this command.
 
 GitHub Actions uses standard hosted runners with read-only repository permissions. No cloud secrets are configured. A local pass validates only the Node/OS combination used locally; the other combinations are verified by CI after pushing.
+
+## ESM packaging
+
+Every application and local library declares `"type": "module"`. Lambda ZIPs include the application `package.json` alongside `index.js`; Azure ZIPs retain their `package.json` and `src/index.js` entry point. Relative imports include explicit `.js` filenames. Gradle still builds local libraries through `npmPack` task dependencies and installs their tarballs before compiling consumers.

@@ -1,4 +1,5 @@
 {
+    "type": "module",
     "name": "test-service",
     "version": "0.0.0",
     "description": "Script that tests the service",

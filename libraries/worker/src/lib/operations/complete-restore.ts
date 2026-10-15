@@ -4,7 +4,7 @@ import { ProcessJobAssignmentHelper, ProviderCollection, WorkerRequest } from "@
 
 import { logError } from "@local/storage";
 
-import { WorkerContext } from "../worker-context";
+import { WorkerContext } from "../worker-context.js";
 
 export async function completeRestore(providers: ProviderCollection, workerRequest: WorkerRequest, ctx?: WorkerContext) {
     const jobAssignmentHelper = new ProcessJobAssignmentHelper(

@@ -4,9 +4,9 @@ import { test } from "node:test";
 import { CopyObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { S3Locator } from "@mcma/aws-s3";
 
-import { FileCopier, FileCopierConfig, FileCopierState } from "../src/lib/file-copier";
-import { SourceMethod, WorkItem, WorkType } from "../src/lib/model";
-import { UrlTrie } from "../src/lib/url-trie";
+import { FileCopier, FileCopierConfig, FileCopierState } from "../src/lib/file-copier.js";
+import { SourceMethod, WorkItem, WorkType } from "../src/lib/model.js";
+import { UrlTrie } from "../src/lib/url-trie.js";
 
 interface Deferred<T> {
     promise: Promise<T>;

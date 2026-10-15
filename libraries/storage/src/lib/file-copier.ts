@@ -20,9 +20,9 @@ import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
 import { BlobStorageLocator, buildBlobStorageUrl, isBlobStorageLocator } from "@mcma/azure-blob-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-import { ActiveWorkItem, DestinationFile, MultipartSegment, SourceFile, SourceMethod, WorkItem, WorkType, WorkTypePriority } from "./model";
-import { destroyStreamOnAbort, logError, raceAbort, withRetry } from "./utils";
-import { UrlTrie } from "./url-trie";
+import { ActiveWorkItem, DestinationFile, MultipartSegment, SourceFile, SourceMethod, WorkItem, WorkType, WorkTypePriority } from "./model.js";
+import { destroyStreamOnAbort, logError, raceAbort, withRetry } from "./utils.js";
+import { UrlTrie } from "./url-trie.js";
 
 const MAX_CONCURRENCY = 32;
 const MULTIPART_SEGMENT_BATCH_SIZE = 32;

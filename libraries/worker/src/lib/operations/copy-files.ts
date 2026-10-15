@@ -4,7 +4,7 @@ import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
 import { FileCopier, FileCopierState, SourceFile, DestinationFile, logError } from "@local/storage";
-import { WorkerContext } from "../worker-context";
+import { WorkerContext } from "../worker-context.js";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 

@@ -1,3 +1,3 @@
-export * from "./worker";
-export * from "./worker-context";
-export * from "./operations";
+export * from "./worker.js";
+export * from "./worker-context.js";
+export * from "./operations/index.js";
