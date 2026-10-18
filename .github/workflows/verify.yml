@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           repository: ebu/mcma-libraries
-          ref: ea8caf41ae54804d63a233419f8ffcc1d9bbc531
+          ref: 8bbd129cfffd07bc88624a5a48ab753593cf84c5
           path: .mcma-libraries
           persist-credentials: false
       - run: npm ci
