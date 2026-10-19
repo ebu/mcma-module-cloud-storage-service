@@ -199,6 +199,3 @@ afterEvaluate {
         }
     }
 }
-
-// Temporary ESM integration; remove with gradle-local-mcma.gradle after release.
-apply from: "${rootDir}/gradle-local-mcma.gradle"

@@ -6,8 +6,6 @@ const { spawnSync } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const cloud = fs.existsSync(path.join(root, 'libraries/storage'));
 const npm = process.env.npm_execpath;
-// Temporary: validate against the unpublished ESM library tarballs.
-const localMcma = require('./local-mcma.cjs');
 if (!npm) throw new Error('Run this command through npm run verify.');
 if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Node 22 or newer is required.');
 const compiler = path.join(root, 'node_modules/typescript/bin/tsc');
@@ -78,7 +76,6 @@ function build(pkg) {
     deps.forEach(build);
     console.log(`\nVerifying ${path.relative(root,pkg.dir)}`);
     run([npm,'ci','--no-audit','--no-fund'],pkg.dir);
-    localMcma.install(pkg.dir);
     // Preserve locked external dependencies; replace only local package output.
     const injected = new Set();
     function inject(dep) {
@@ -101,7 +98,7 @@ function build(pkg) {
 }
 const packageOnly = process.argv.includes('--package-only');
 if (packageOnly && cloud) throw new Error('--package-only is for the MCMA core package smoke check.');
-if (!packageOnly) { localMcma.prepare(); packages.forEach(build); }
+if (!packageOnly) packages.forEach(build);
 if(!cloud) {
     const core=byName.get('@mcma/core');
     const fixture=path.join(root,'build/package-smoke');

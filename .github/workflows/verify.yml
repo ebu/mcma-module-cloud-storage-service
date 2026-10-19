@@ -20,8 +20,6 @@ jobs:
             node: 22
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    env:
-      MCMA_LIBRARIES_ROOT: ${{ github.workspace }}/.mcma-libraries
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,16 +28,5 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
-      # Temporary integration with the unpublished ESM libraries; pin the reviewed commit.
-      - uses: actions/checkout@v7
-        with:
-          repository: ebu/mcma-libraries
-          ref: 8bbd129cfffd07bc88624a5a48ab753593cf84c5
-          path: .mcma-libraries
-          persist-credentials: false
-      - run: npm ci
-        working-directory: .mcma-libraries
-      - run: npm run verify
-        working-directory: .mcma-libraries
       - run: npm ci
       - run: npm run verify

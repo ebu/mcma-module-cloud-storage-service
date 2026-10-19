@@ -22,12 +22,3 @@ task npmPack(type: Exec) {
         mkdir "build/dist"
     }
 }
-
-// Temporary: packed @local libraries must request the matching ESM MCMA peer versions.
-if (rootProject.localMcmaRoot) {
-    task prepareLocalMcmaManifest(type: Exec) {
-        dependsOn copyPackageJson, rootProject.tasks.named("packLocalMcma")
-        commandLine nodeExecutable + [rootDir.toString() + "/scripts/local-mcma.cjs", "stage", projectDir.toString() + "/build/staging/package.json"]
-    }
-    npmPack.dependsOn prepareLocalMcmaManifest
-}

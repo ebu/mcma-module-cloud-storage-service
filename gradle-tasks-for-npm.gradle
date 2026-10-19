@@ -1,7 +1,7 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 
-def McmaVersion = "1.1.4"
+def McmaVersion = "2.0.0"
 
 task setMcmaVersion {
     def packageJson = file("package.json")
@@ -55,10 +55,6 @@ task npmInstall(type: Exec) {
     def projectDir = project.projectDir
     def localLibraries = []
     afterEvaluate {
-        if (rootProject.localMcmaRoot) {
-            dependsOn rootProject.tasks.named("packLocalMcma")
-            inputs.dir rootProject.file("build/local-mcma")
-        }
         dependsOn.collect().each {
             if (it instanceof String && it.endsWith(":npmPack")) {
                 def parts = it.toString().split(":")
@@ -80,12 +76,7 @@ task npmInstall(type: Exec) {
         }
     }
     doLast {
-        if (rootProject.localMcmaRoot) {
-            injected.execOps.exec {
-                commandLine nodeExecutable + [project.rootDir.toString() + "/scripts/local-mcma.cjs", "install", projectDir.toString()] + localLibraries
-                workingDir projectDir
-            }
-        } else if (!localLibraries.empty) {
+        if (!localLibraries.empty) {
             injected.execOps.exec {
                 commandLine npmExecutable
                 workingDir projectDir
