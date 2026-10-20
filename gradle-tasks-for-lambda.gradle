@@ -1,21 +1,11 @@
 apply from: "${project.rootDir}/gradle-tasks-for-npm.gradle"
 
-task copyNodeModules(type: Copy) {
-    dependsOn npmInstall
-    mustRunAfter tsc
-    from "node_modules"
-    into "build/staging/node_modules"
-}
-
-task copyPackageJson(type: Copy) {
-    dependsOn tsc
-    from "package.json"
-    into "build/staging"
-}
+ext.bundlePlatform = "aws"
+apply from: "${project.rootDir}/gradle-tasks-for-bundling.gradle"
 
 task build(type: Zip) {
-    dependsOn copyNodeModules, copyPackageJson, tsc
-    from "build/staging"
+    dependsOn bundle
+    from "build/bundle"
     archiveFileName = "lambda.zip"
     destinationDirectory = file("build/dist")
     preserveFileTimestamps = false

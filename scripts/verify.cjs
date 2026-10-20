@@ -136,3 +136,10 @@ if(!cloud) {
     console.log('Application staging checks passed (no cloud handlers invoked).');
 }
 if (!packageOnly) console.log(`Verified ${built.size} packages on Node ${process.versions.node} / ${process.platform}.`);
+
+// Exercise the deployment bundler and isolated runtime checks on every CI platform.
+if (cloud && !packageOnly) {
+    for (const pkg of packages.filter(p => ['aws', 'azure'].includes(p.group))) {
+        run([path.join(root, 'scripts/bundle.cjs'), pkg.dir, pkg.group]);
+    }
+}

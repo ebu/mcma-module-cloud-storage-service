@@ -1,20 +1,11 @@
 apply from: "${project.rootDir}/gradle-tasks-for-npm.gradle"
 
-
-task copyFiles(type: Copy) {
-    mustRunAfter tsc
-    from "."
-    into "build/staging"
-    exclude "build"
-    include "node_modules/**"
-    include "*/function.json"
-    include "host.json"
-    include "package.json"
-}
+ext.bundlePlatform = "azure"
+apply from: "${project.rootDir}/gradle-tasks-for-bundling.gradle"
 
 task build(type: Zip) {
-    dependsOn copyFiles, tsc
-    from "build/staging"
+    dependsOn bundle
+    from "build/bundle"
     archiveFileName = "function.zip"
     destinationDirectory = file("build/dist")
     preserveFileTimestamps = false
