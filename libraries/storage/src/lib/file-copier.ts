@@ -707,9 +707,9 @@ export class FileCopier {
     }
 
     /**
-     * Confirms whether a zero Content-Length from HEAD represents an empty file or incorrect HTTP metadata.
+     * Resolves a missing, invalid, or ambiguous zero Content-Length from HEAD using a one-byte range request.
      */
-    private async disambiguateZeroHttpContentLength(sourceUrl: string, abortSignal: AbortSignal) {
+    private async resolveHttpContentLengthWithRange(sourceUrl: string, abortSignal: AbortSignal) {
         const response = await raceAbort(
             abortSignal,
             axios.get(sourceUrl, {
@@ -827,10 +827,10 @@ export class FileCopier {
             contentType = contentTypeHeader;
             lastModified = lastModifiedHeader ? new Date(lastModifiedHeader) : undefined;
 
-            // Some HTTP origins report Content-Length: 0 for HEAD while returning a non-empty GET.
-            // A one-byte range request distinguishes those responses from genuine empty files.
-            if (contentLength === 0) {
-                contentLength = await this.disambiguateZeroHttpContentLength(
+            // Some HTTP origins omit Content-Length from HEAD or report zero while returning a non-empty GET.
+            // A one-byte range request resolves missing metadata and distinguishes genuine empty files.
+            if (!Number.isSafeInteger(contentLength) || contentLength <= 0) {
+                contentLength = await this.resolveHttpContentLengthWithRange(
                     workItem.sourceFile.egressUrl ?? workItem.sourceFile.locator.url,
                     abortSignal
                 );

@@ -7,7 +7,7 @@
     "types": "index.d.ts",
     "license": "Apache-2.0",
     "scripts": {
-        "test": "npm run test:compile && node --test build/test/test/file-copier-checkpoint.test.js",
+        "test": "npm run test:compile && node --test build/test/test/file-copier-checkpoint.test.js build/test/test/file-copier-http-metadata.test.js",
         "test:compile": "node ../../node_modules/typescript/bin/tsc -p tsconfig.test.json"
     },
     "dependencies": {
