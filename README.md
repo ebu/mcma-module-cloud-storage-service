@@ -37,3 +37,11 @@ Gradle bundles the compiled AWS and Azure applications with pinned esbuild befor
 Bundles remain ESM and target Node.js 22 or newer. They retain function/class names, linked source maps, and third-party license notices. Azure keeps `@azure/functions` and the identity SDK's `open` helper, including their installed runtime dependencies and assets, outside the bundle. AWS bundles require no packaged `node_modules` directory.
 
 Run root `npm ci`, then `./gradlew build` (Windows: `.\gradlew.bat build`) as before. Each deployment project writes its bundle to `build/bundle` and an esbuild size-analysis manifest to `build/bundle-meta.json`. The manifest is not included in the deployment ZIP. Gradle checks each bundle in isolation before creating the ZIP; `npm run verify` runs the same bundle checks in CI. These checks verify startup without network access, but deployed AWS and Azure integration tests are still needed to validate runtime behavior.
+
+## Deployment with MCMA 2.0.0 services
+
+The example deployment consumes the public Service Registry and Job Processor 2.0.0 Terraform release archives, including their prebuilt function bundles. Cloud Storage runs Node.js 26 on AWS Lambda and Node.js 24 on Azure Functions. Both Flex Consumption and Windows/custom App Service plans remain supported.
+
+The Azure module requires AzureRM >= 5.10.0, < 6.0.0; the AWS module requires AWS provider >= 6.69.1, < 7.0.0. AzAPI remains >= 2.13.0. Key Vault continues using access policies. The committed provider lockfile includes Windows and Linux checksums.
+
+After pulling these changes, run `.\gradlew.bat plan` to download the new modules and locked providers and review the deployment changes. Then run `.\gradlew.bat deploy` and test a copy job end to end. Existing local Terraform state and backend configuration are retained.

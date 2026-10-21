@@ -164,7 +164,7 @@ resource "aws_lambda_function" "monitor" {
   role             = aws_iam_role.monitor.arn
   handler          = "index.handler"
   source_code_hash = filebase64sha256("${path.module}/lambdas/monitor.zip")
-  runtime          = "nodejs22.x"
+  runtime          = "nodejs26.x"
   timeout          = "900"
   memory_size      = "2048"
 

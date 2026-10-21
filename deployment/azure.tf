@@ -91,7 +91,12 @@ resource "azurerm_subnet" "private" {
   virtual_network_name = azurerm_virtual_network.virtual_network.name
   address_prefixes     = ["10.0.1.0/24"]
 
-  service_endpoints = ["Microsoft.AzureCosmosDB", "Microsoft.KeyVault"]
+  service_endpoint {
+    service = "Microsoft.AzureCosmosDB"
+  }
+  service_endpoint {
+    service = "Microsoft.KeyVault"
+  }
 
   delegation {
     name = "delegation"
@@ -172,7 +177,7 @@ resource "azurerm_application_insights" "app_insights" {
 #########################
 
 module "service_registry_azure" {
-  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=v1.4.1"
+  source = "https://github.com/ebu/mcma-module-service-registry/releases/download/v2.0.0/terraform-azure.zip"
 
   prefix = "${var.prefix}-sr"
 
@@ -210,7 +215,7 @@ module "job_processor_azure" {
     mcma = mcma.azure
   }
 
-  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=v1.4.1"
+  source = "https://github.com/ebu/mcma-module-job-processor/releases/download/v2.0.0/terraform-azure.zip"
 
   prefix = "${var.prefix}-jp"
 
