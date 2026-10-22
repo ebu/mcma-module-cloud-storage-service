@@ -45,3 +45,25 @@ The example deployment consumes the public Service Registry and Job Processor 2.
 The Azure module requires AzureRM >= 5.10.0, < 6.0.0; the AWS module requires AWS provider >= 6.69.1, < 7.0.0. AzAPI remains >= 2.13.0. Key Vault continues using access policies. The committed provider lockfile includes Windows and Linux checksums.
 
 After pulling these changes, run `.\gradlew.bat plan` to download the new modules and locked providers and review the deployment changes. Then run `.\gradlew.bat deploy` and test a copy job end to end. Existing local Terraform state and backend configuration are retained.
+
+## Storage configuration in 3.0.0
+
+The AWS and Azure modules replace `aws_s3_buckets` and `azure_storage_accounts` with one required `storage_locations` object. Only this object's fields and nested fields change to camelCase; other Terraform input and output names remain unchanged.
+
+```hcl
+storage_locations = {
+  awsS3Buckets = [{
+    bucket = "example-bucket"
+    region = "eu-west-1"
+    # Optional: accessKey, secretKey, endpoint
+  }]
+  azureStorageAccounts = [{
+    account          = "examplestorage"
+    connectionString = var.storage_connection_string
+  }]
+}
+```
+
+Both lists are required; use `[]` for an unused storage type. Within bucket entries, rename `access_key` / `secret_key` to `accessKey` / `secretKey`. Within Azure account entries, rename `connection_string` to `connectionString`. `bucket`, `region`, `endpoint`, and `account` are unchanged. Old input names are removed; callers must migrate before upgrading.
+
+The example deployment's `storage_locations` output uses the same camelCase contents. Integration scripts have been updated to read them; refresh Terraform outputs after deploying before running those scripts. Runtime secrets retain their existing `aws` / `azure` maps and camelCase values. Resource addresses, other configuration names, and both Azure plan options are unchanged.

@@ -159,21 +159,21 @@ variable "service_registry" {
 # Storage access
 ########################
 
-variable "aws_s3_buckets" {
-  type = list(object({
-    bucket     = string
-    region     = string
-    access_key = optional(string)
-    secret_key = optional(string)
-    endpoint   = optional(string)
-  }))
-}
-
-variable "azure_storage_accounts" {
-  type = list(object({
-    account           = string
-    connection_string = string
-  }))
+variable "storage_locations" {
+  type = object({
+    awsS3Buckets = list(object({
+      bucket    = string
+      region    = string
+      accessKey = optional(string)
+      secretKey = optional(string)
+      endpoint  = optional(string)
+    }))
+    azureStorageAccounts = list(object({
+      account          = string
+      connectionString = string
+    }))
+  })
+  description = "Storage locations accessible to the service. Use empty lists for unused storage types."
 }
 
 ####################################

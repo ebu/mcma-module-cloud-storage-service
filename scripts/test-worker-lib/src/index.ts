@@ -38,14 +38,14 @@ interface TestManifest {
 
 interface StorageAccountConfig {
     account: string;
-    connection_string: string;
+    connectionString: string;
 }
 
 interface S3BucketConfig {
     bucket: string;
     region: string;
-    access_key: string;
-    secret_key: string;
+    accessKey: string;
+    secretKey: string;
 }
 
 let azurePrimaryStorageAccount: StorageAccountConfig;
@@ -81,8 +81,8 @@ const getS3Client = async (bucket: string, region?: string) => {
 
     return new S3Client({
         credentials: {
-            accessKeyId: config.access_key,
-            secretAccessKey: config.secret_key,
+            accessKeyId: config.accessKey,
+            secretAccessKey: config.secretKey,
         },
         region: region ?? config.region,
         requestStreamBufferSize: 65_536,
@@ -123,26 +123,26 @@ function initializeCloudClients() {
     const eastUsStorageAccountName = buildAzureStorageAccountName(deploymentPrefix, "eastus");
 
     azurePrimaryStorageAccount = requiredValue(
-        storageLocations.azure_storage_accounts.find((account: StorageAccountConfig) => account.account === primaryStorageAccountName),
+        storageLocations.azureStorageAccounts.find((account: StorageAccountConfig) => account.account === primaryStorageAccountName),
         `${azureLocation} Azure storage account '${primaryStorageAccountName}'`,
     );
     azureEastUsStorageAccount = requiredValue(
-        storageLocations.azure_storage_accounts.find((account: StorageAccountConfig) => account.account === eastUsStorageAccountName),
+        storageLocations.azureStorageAccounts.find((account: StorageAccountConfig) => account.account === eastUsStorageAccountName),
         `East US Azure storage account '${eastUsStorageAccountName}'`,
     );
     s3BucketUsEast1 = requiredValue(
-        storageLocations.aws_s3_buckets.find((bucket: S3BucketConfig) => bucket.region === "us-east-1"),
+        storageLocations.awsS3Buckets.find((bucket: S3BucketConfig) => bucket.region === "us-east-1"),
         "us-east-1 S3 bucket",
     );
     s3BucketEuWest1 = requiredValue(
-        storageLocations.aws_s3_buckets.find((bucket: S3BucketConfig) => bucket.region === "eu-west-1"),
+        storageLocations.awsS3Buckets.find((bucket: S3BucketConfig) => bucket.region === "eu-west-1"),
         "eu-west-1 S3 bucket",
     );
 
     for (const storageAccount of [azurePrimaryStorageAccount, azureEastUsStorageAccount]) {
         containerClients[storageAccount.account] = {
-            source: new ContainerClient(storageAccount.connection_string, "source"),
-            target: new ContainerClient(storageAccount.connection_string, "target"),
+            source: new ContainerClient(storageAccount.connectionString, "source"),
+            target: new ContainerClient(storageAccount.connectionString, "target"),
         };
     }
 }
