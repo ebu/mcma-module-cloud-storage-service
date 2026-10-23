@@ -1,12 +1,12 @@
 import { RestoreObjectCommand, Tier } from "@aws-sdk/client-s3";
 import { ProcessJobAssignmentHelper, ProviderCollection } from "@mcma/worker";
 import { Locator, McmaException, ProblemDetail, StorageJob } from "@mcma/core";
-import { WorkerContext } from "../worker-context";
+import { WorkerContext } from "../worker-context.js";
 import { isS3Locator } from "@mcma/aws-s3";
 import { getTableName } from "@mcma/data";
 
 import { RestorePriority, buildRestoreWorkItemId, RestoreWorkItem } from "@local/storage";
-import { matchesPathFilter, scanSourceFolderForRestore } from "./utils";
+import { matchesPathFilter, scanSourceFolderForRestore } from "./utils.js";
 
 export async function restoreFolder(providers: ProviderCollection, jobAssignmentHelper: ProcessJobAssignmentHelper<StorageJob>, ctx: WorkerContext) {
     const logger = jobAssignmentHelper.logger;

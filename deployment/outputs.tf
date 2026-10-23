@@ -68,48 +68,48 @@ output "azure_location" {
 output "storage_locations" {
   sensitive = true
   value = {
-    aws_s3_buckets = [
+    awsS3Buckets = [
       {
-        bucket     = aws_s3_bucket.private.id
-        region     = aws_s3_bucket.private.region
-        access_key = aws_iam_access_key.bucket_access.id
-        secret_key = aws_iam_access_key.bucket_access.secret
+        bucket    = aws_s3_bucket.private.id
+        region    = aws_s3_bucket.private.region
+        accessKey = aws_iam_access_key.bucket_access.id
+        secretKey = aws_iam_access_key.bucket_access.secret
       },
       {
-        bucket     = aws_s3_bucket.private_ext.id
-        region     = aws_s3_bucket.private_ext.region
-        access_key = aws_iam_access_key.bucket_access.id
-        secret_key = aws_iam_access_key.bucket_access.secret
+        bucket    = aws_s3_bucket.private_ext.id
+        region    = aws_s3_bucket.private_ext.region
+        accessKey = aws_iam_access_key.bucket_access.id
+        secretKey = aws_iam_access_key.bucket_access.secret
       },
       {
-        bucket     = aws_s3_bucket.target.id
-        region     = aws_s3_bucket.target.region
-        access_key = aws_iam_access_key.bucket_access.id
-        secret_key = aws_iam_access_key.bucket_access.secret
+        bucket    = aws_s3_bucket.target.id
+        region    = aws_s3_bucket.target.region
+        accessKey = aws_iam_access_key.bucket_access.id
+        secretKey = aws_iam_access_key.bucket_access.secret
       },
       {
-        bucket     = var.s3_like_bucket_name
-        region     = "us-east-1"
-        access_key = var.s3_like_bucket_access_key
-        secret_key = var.s3_like_bucket_secret_key
-        endpoint   = var.s3_like_bucket_endpoint
+        bucket    = var.s3_like_bucket_name
+        region    = "us-east-1"
+        accessKey = var.s3_like_bucket_access_key
+        secretKey = var.s3_like_bucket_secret_key
+        endpoint  = var.s3_like_bucket_endpoint
       },
       {
-        bucket     = aws_s3_bucket.private_eu_west_1.id
-        region     = aws_s3_bucket.private_eu_west_1.region
-        access_key = aws_iam_access_key.bucket_access.id
-        secret_key = aws_iam_access_key.bucket_access.secret
+        bucket    = aws_s3_bucket.private_eu_west_1.id
+        region    = aws_s3_bucket.private_eu_west_1.region
+        accessKey = aws_iam_access_key.bucket_access.id
+        secretKey = aws_iam_access_key.bucket_access.secret
       },
     ]
 
-    azure_storage_accounts = [
+    azureStorageAccounts = [
       {
-        account           = azurerm_storage_account.storage_account.name
-        connection_string = azurerm_storage_account.storage_account.primary_connection_string
+        account          = azurerm_storage_account.storage_account.name
+        connectionString = azurerm_storage_account.storage_account.primary_connection_string
       },
       {
-        account           = azurerm_storage_account.storage_account_east_us.name
-        connection_string = azurerm_storage_account.storage_account_east_us.primary_connection_string
+        account          = azurerm_storage_account.storage_account_east_us.name
+        connectionString = azurerm_storage_account.storage_account_east_us.primary_connection_string
       },
     ]
   }

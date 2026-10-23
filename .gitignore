@@ -12,3 +12,9 @@ terraform.tfvars.json
 .terraform.tfstate.lock.info
 /scripts/test-aws-worker/config.env
 /scripts/test-aws-worker/src/event.json
+
+# Local verification output
+/build/
+
+# Temporary ESM integration checkout used in CI
+/.mcma-libraries/

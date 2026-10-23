@@ -1,4 +1,5 @@
-import { captureAWSv3Client as xrayCaptureAwsV3Client, SegmentLike } from "aws-xray-sdk-core";
+import xray, { type SegmentLike } from "aws-xray-sdk-core";
+const { captureAWSv3Client: xrayCaptureAwsV3Client } = xray;
 import { Context } from "aws-lambda";
 import { CloudWatchLogsClient } from "@aws-sdk/client-cloudwatch-logs";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";

@@ -5,7 +5,7 @@ import { getWorkerFunctionId } from "@mcma/worker-invoker";
 
 import { SourceFile, DestinationFile, FileCopier, FileCopierState, logError } from "@local/storage";
 
-import { WorkerContext } from "../index";
+import { WorkerContext } from "../index.js";
 
 const { MAX_CONCURRENCY, MULTIPART_SIZE } = process.env;
 

@@ -20,9 +20,9 @@ import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
 import { BlobStorageLocator, buildBlobStorageUrl, isBlobStorageLocator } from "@mcma/azure-blob-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-import { ActiveWorkItem, DestinationFile, MultipartSegment, SourceFile, SourceMethod, WorkItem, WorkType, WorkTypePriority } from "./model";
-import { destroyStreamOnAbort, logError, raceAbort, withRetry } from "./utils";
-import { UrlTrie } from "./url-trie";
+import { ActiveWorkItem, DestinationFile, MultipartSegment, SourceFile, SourceMethod, WorkItem, WorkType, WorkTypePriority } from "./model.js";
+import { destroyStreamOnAbort, logError, raceAbort, withRetry } from "./utils.js";
+import { UrlTrie } from "./url-trie.js";
 
 const MAX_CONCURRENCY = 32;
 const MULTIPART_SEGMENT_BATCH_SIZE = 32;
@@ -707,9 +707,9 @@ export class FileCopier {
     }
 
     /**
-     * Confirms whether a zero Content-Length from HEAD represents an empty file or incorrect HTTP metadata.
+     * Resolves a missing, invalid, or ambiguous zero Content-Length from HEAD using a one-byte range request.
      */
-    private async disambiguateZeroHttpContentLength(sourceUrl: string, abortSignal: AbortSignal) {
+    private async resolveHttpContentLengthWithRange(sourceUrl: string, abortSignal: AbortSignal) {
         const response = await raceAbort(
             abortSignal,
             axios.get(sourceUrl, {
@@ -827,10 +827,10 @@ export class FileCopier {
             contentType = contentTypeHeader;
             lastModified = lastModifiedHeader ? new Date(lastModifiedHeader) : undefined;
 
-            // Some HTTP origins report Content-Length: 0 for HEAD while returning a non-empty GET.
-            // A one-byte range request distinguishes those responses from genuine empty files.
-            if (contentLength === 0) {
-                contentLength = await this.disambiguateZeroHttpContentLength(
+            // Some HTTP origins omit Content-Length from HEAD or report zero while returning a non-empty GET.
+            // A one-byte range request resolves missing metadata and distinguishes genuine empty files.
+            if (!Number.isSafeInteger(contentLength) || contentLength <= 0) {
+                contentLength = await this.resolveHttpContentLengthWithRange(
                     workItem.sourceFile.egressUrl ?? workItem.sourceFile.locator.url,
                     abortSignal
                 );

@@ -1,4 +1,5 @@
 {
+    "type": "module",
     "name": "@local/monitor",
     "version": "0.0.0",
     "private": true,
@@ -6,31 +7,34 @@
     "types": "index.d.ts",
     "license": "Apache-2.0",
     "dependencies": {
-        "uuid": "^11.1.1",
-        "@aws-sdk/s3-request-presigner": "^3.1088.0",
-        "@aws-sdk/client-s3": "^3.1088.0",
-        "@aws-sdk/lib-storage": "^3.1088.0",
-        "@azure/storage-blob": "^12.33.0"
+        "uuid": "14.0.3",
+        "@aws-sdk/s3-request-presigner": "3.1155.0",
+        "@aws-sdk/client-s3": "3.1155.0",
+        "@aws-sdk/lib-storage": "3.1155.0",
+        "@azure/storage-blob": "12.34.0"
     },
     "devDependencies": {
-        "@mcma/aws-s3": "1.1.4",
-        "@mcma/azure-blob-storage": "1.1.4",
-        "@mcma/client": "1.1.4",
-        "@mcma/core": "1.1.4",
-        "@mcma/data": "1.1.4",
-        "@mcma/secrets": "1.1.4",
-        "@mcma/worker": "1.1.4",
-        "@mcma/worker-invoker": "1.1.4",
-        "@types/node": "^22.20.1"
+        "@mcma/aws-s3": "2.0.0",
+        "@mcma/azure-blob-storage": "2.0.0",
+        "@mcma/client": "2.0.0",
+        "@mcma/core": "2.0.0",
+        "@mcma/data": "2.0.0",
+        "@mcma/secrets": "2.0.0",
+        "@mcma/worker": "2.0.0",
+        "@mcma/worker-invoker": "2.0.0",
+        "@types/node": "22.20.5"
     },
     "peerDependencies": {
-        "@mcma/aws-s3": "1.1.4",
-        "@mcma/azure-blob-storage": "1.1.4",
-        "@mcma/client": "1.1.4",
-        "@mcma/core": "1.1.4",
-        "@mcma/data": "1.1.4",
-        "@mcma/secrets": "1.1.4",
-        "@mcma/worker": "1.1.4",
-        "@mcma/worker-invoker": "1.1.4"
+        "@mcma/aws-s3": "2.0.0",
+        "@mcma/azure-blob-storage": "2.0.0",
+        "@mcma/client": "2.0.0",
+        "@mcma/core": "2.0.0",
+        "@mcma/data": "2.0.0",
+        "@mcma/secrets": "2.0.0",
+        "@mcma/worker": "2.0.0",
+        "@mcma/worker-invoker": "2.0.0"
+    },
+    "engines": {
+        "node": ">=22.0.0"
     }
 }

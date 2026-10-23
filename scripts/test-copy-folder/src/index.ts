@@ -204,7 +204,7 @@ async function main() {
     const awsPrivateSourceBucket: string = `${terraformOutput.deployment_prefix.value}-private-${terraformOutput.aws_region.value}`;
     const awsTargetBucket: string = `${terraformOutput.deployment_prefix.value}-target-${terraformOutput.aws_region.value}`;
     const azureStorageAccountName: string = `${terraformOutput.deployment_prefix.value}-${terraformOutput.azure_location.value}`.replaceAll(new RegExp(/[^a-z0-9]+/, "g"), "").substring(0, 24);
-    const azureStorageConnectionString: string = terraformOutput.storage_locations.value.azure_storage_accounts.find((sa: any) => sa.account === azureStorageAccountName).connection_string;
+    const azureStorageConnectionString: string = terraformOutput.storage_locations.value.azureStorageAccounts.find((sa: any) => sa.account === azureStorageAccountName).connectionString;
     const azureSourceContainer: string = "source";
     const azureTargetContainer: string = "target";
 

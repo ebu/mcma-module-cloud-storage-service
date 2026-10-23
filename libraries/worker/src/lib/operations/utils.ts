@@ -1,5 +1,5 @@
 import { Locator, McmaException } from "@mcma/core";
-import { WorkerContext } from "../worker-context";
+import { WorkerContext } from "../worker-context.js";
 import { ListObjectsV2CommandInput, ListObjectsV2Command, StorageClass } from "@aws-sdk/client-s3";
 import { buildS3Url, isS3Locator, S3Locator } from "@mcma/aws-s3";
 import { withRetry } from "@local/storage";

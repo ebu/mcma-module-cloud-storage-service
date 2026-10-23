@@ -6,8 +6,8 @@ import { getTableName } from "@mcma/data";
 
 import { RestorePriority, RestoreWorkItem, buildRestoreWorkItemId } from "@local/storage";
 
-import { WorkerContext } from "../worker-context";
-import { matchesPathFilter, scanSourceFolderForRestore } from "./utils";
+import { WorkerContext } from "../worker-context.js";
+import { matchesPathFilter, scanSourceFolderForRestore } from "./utils.js";
 
 export async function restoreFiles(providers: ProviderCollection, jobAssignmentHelper: ProcessJobAssignmentHelper<StorageJob>, ctx: WorkerContext) {
     const logger = jobAssignmentHelper.logger;

@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { v4 as uuidV4 } from "uuid";
 
-import { handler } from "../../../aws/worker/src";
+import { handler } from "../../../aws/worker/src/index.js";
 
 function log(entry?: any) {
     if (typeof entry === "object") {
@@ -13,7 +14,7 @@ function log(entry?: any) {
 async function main() {
     console.log("Starting");
 
-    const event = require("./event.json");
+    const event = JSON.parse(readFileSync(new URL("./event.json", import.meta.url), "utf8"));
     log({
         event
     });

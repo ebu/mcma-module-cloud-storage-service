@@ -10,7 +10,7 @@ import { Job, JobParameterBag, JobProfile, JobStatus, Locator, McmaException, Mc
 import { buildS3Url, S3Locator } from "@mcma/aws-s3";
 import { ContainerClient } from "@azure/storage-blob";
 import { BlobStorageLocator, buildBlobStorageUrl } from "@mcma/azure-blob-storage";
-import { S3Helper } from "./s3-helper";
+import { S3Helper } from "./s3-helper.js";
 
 const credentials = fromIni();
 
@@ -166,7 +166,7 @@ async function main() {
     const awsPrivateExtSourceBucket: string = `${terraformOutput.deployment_prefix.value}-private-ext-${terraformOutput.aws_region.value}`;
     const awsTargetBucket: string = `${terraformOutput.deployment_prefix.value}-target-${terraformOutput.aws_region.value}`;
     const azureStorageAccountName: string = `${terraformOutput.deployment_prefix.value}-${terraformOutput.azure_location.value}`.replaceAll(new RegExp(/[^a-z0-9]+/, "g"), "").substring(0, 24);
-    const azureStorageConnectionString: string = terraformOutput.storage_locations.value.azure_storage_accounts.find((sa: any) => sa.account === azureStorageAccountName).connection_string;
+    const azureStorageConnectionString: string = terraformOutput.storage_locations.value.azureStorageAccounts.find((sa: any) => sa.account === azureStorageAccountName).connectionString;
     const azureSourceContainer: string = "source";
     const azureTargetContainer: string = "target";
 

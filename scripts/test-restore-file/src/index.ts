@@ -4,7 +4,7 @@ import { S3Client, StorageClass } from "@aws-sdk/client-s3";
 import { fromIni } from "@aws-sdk/credential-providers";
 import { Job, JobParameterBag, JobProfile, JobStatus, Locator, McmaException, McmaTracker, StorageJob, Utils } from "@mcma/core";
 import { S3Locator, buildS3Url } from "@mcma/aws-s3";
-import { S3Helper } from "./s3-helper";
+import { S3Helper } from "./s3-helper.js";
 import { AuthProvider, ResourceManager, ResourceManagerConfig, mcmaApiKeyAuth } from "@mcma/client";
 import { v4 as uuidv4 } from "uuid";
 

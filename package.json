@@ -1,0 +1,14 @@
+{
+    "name": "mcma-cloud-storage-development",
+    "private": true,
+    "engines": {
+        "node": ">=22.0.0"
+    },
+    "scripts": {
+        "verify": "node scripts/verify.cjs"
+    },
+    "devDependencies": {
+        "esbuild": "0.28.2",
+        "typescript": "7.0.2"
+    }
+}

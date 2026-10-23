@@ -28,7 +28,7 @@ variable "azure_subscription_id" {
   description = "Azure Subscription Id where infrastructure will be deployed"
 }
 
-variable azure_location {
+variable "azure_location" {
   type        = string
   description = "Azure Location where infrastructure will be deployed"
 }

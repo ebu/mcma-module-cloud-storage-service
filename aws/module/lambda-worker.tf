@@ -198,7 +198,7 @@ resource "aws_lambda_function" "worker" {
   role             = aws_iam_role.worker.arn
   handler          = "index.handler"
   source_code_hash = filebase64sha256("${path.module}/lambdas/worker.zip")
-  runtime          = "nodejs22.x"
+  runtime          = "nodejs26.x"
   timeout          = "900"
   memory_size      = var.worker_memory_size
 
@@ -247,6 +247,6 @@ resource "aws_lambda_function_recursion_config" "worker" {
 
 locals {
   buckets_that_require_permissions = [
-    for each in var.aws_s3_buckets : "arn:aws:s3:::${each.bucket}" if each.access_key == null || each.secret_key == null
+    for each in var.storage_locations.awsS3Buckets : "arn:aws:s3:::${each.bucket}" if each.accessKey == null || each.secretKey == null
   ]
 }

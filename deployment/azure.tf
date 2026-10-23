@@ -91,7 +91,12 @@ resource "azurerm_subnet" "private" {
   virtual_network_name = azurerm_virtual_network.virtual_network.name
   address_prefixes     = ["10.0.1.0/24"]
 
-  service_endpoints = ["Microsoft.AzureCosmosDB", "Microsoft.KeyVault"]
+  service_endpoint {
+    service = "Microsoft.AzureCosmosDB"
+  }
+  service_endpoint {
+    service = "Microsoft.KeyVault"
+  }
 
   delegation {
     name = "delegation"
@@ -172,7 +177,7 @@ resource "azurerm_application_insights" "app_insights" {
 #########################
 
 module "service_registry_azure" {
-  source = "github.com/ebu/mcma-module-service-registry//azure/module?ref=v1.4.1"
+  source = "https://github.com/ebu/mcma-module-service-registry/releases/download/v2.0.0/terraform-azure.zip"
 
   prefix = "${var.prefix}-sr"
 
@@ -210,7 +215,7 @@ module "job_processor_azure" {
     mcma = mcma.azure
   }
 
-  source = "github.com/ebu/mcma-module-job-processor//azure/module?ref=v1.4.1"
+  source = "https://github.com/ebu/mcma-module-job-processor/releases/download/v2.0.0/terraform-azure.zip"
 
   prefix = "${var.prefix}-jp"
 
@@ -263,56 +268,58 @@ module "cloud_storage_service_azure" {
     module.job_processor_azure.api_key
   ]
 
-  aws_s3_buckets = [
-    {
-      bucket     = aws_s3_bucket.archive.id
-      region     = aws_s3_bucket.archive.region
-      access_key = aws_iam_access_key.bucket_access.id
-      secret_key = aws_iam_access_key.bucket_access.secret
-    },
-    {
-      bucket     = aws_s3_bucket.private.id
-      region     = aws_s3_bucket.private.region
-      access_key = aws_iam_access_key.bucket_access.id
-      secret_key = aws_iam_access_key.bucket_access.secret
-    },
-    {
-      bucket     = aws_s3_bucket.private_ext.id
-      region     = aws_s3_bucket.private_ext.region
-      access_key = aws_iam_access_key.bucket_access.id
-      secret_key = aws_iam_access_key.bucket_access.secret
-    },
-    {
-      bucket     = aws_s3_bucket.target.id
-      region     = aws_s3_bucket.target.region
-      access_key = aws_iam_access_key.bucket_access.id
-      secret_key = aws_iam_access_key.bucket_access.secret
-    },
-    {
-      bucket     = var.s3_like_bucket_name
-      region     = "us-east-1"
-      access_key = var.s3_like_bucket_access_key
-      secret_key = var.s3_like_bucket_secret_key
-      endpoint   = var.s3_like_bucket_endpoint
-    },
-    {
-      bucket     = aws_s3_bucket.private_eu_west_1.id
-      region     = aws_s3_bucket.private_eu_west_1.region
-      access_key = aws_iam_access_key.bucket_access.id
-      secret_key = aws_iam_access_key.bucket_access.secret
-    },
-  ]
+  storage_locations = {
+    awsS3Buckets = [
+      {
+        bucket    = aws_s3_bucket.archive.id
+        region    = aws_s3_bucket.archive.region
+        accessKey = aws_iam_access_key.bucket_access.id
+        secretKey = aws_iam_access_key.bucket_access.secret
+      },
+      {
+        bucket    = aws_s3_bucket.private.id
+        region    = aws_s3_bucket.private.region
+        accessKey = aws_iam_access_key.bucket_access.id
+        secretKey = aws_iam_access_key.bucket_access.secret
+      },
+      {
+        bucket    = aws_s3_bucket.private_ext.id
+        region    = aws_s3_bucket.private_ext.region
+        accessKey = aws_iam_access_key.bucket_access.id
+        secretKey = aws_iam_access_key.bucket_access.secret
+      },
+      {
+        bucket    = aws_s3_bucket.target.id
+        region    = aws_s3_bucket.target.region
+        accessKey = aws_iam_access_key.bucket_access.id
+        secretKey = aws_iam_access_key.bucket_access.secret
+      },
+      {
+        bucket    = var.s3_like_bucket_name
+        region    = "us-east-1"
+        accessKey = var.s3_like_bucket_access_key
+        secretKey = var.s3_like_bucket_secret_key
+        endpoint  = var.s3_like_bucket_endpoint
+      },
+      {
+        bucket    = aws_s3_bucket.private_eu_west_1.id
+        region    = aws_s3_bucket.private_eu_west_1.region
+        accessKey = aws_iam_access_key.bucket_access.id
+        secretKey = aws_iam_access_key.bucket_access.secret
+      },
+    ]
 
-  azure_storage_accounts = [
-    {
-      account           = azurerm_storage_account.storage_account.name
-      connection_string = azurerm_storage_account.storage_account.primary_connection_string
-    },
-    {
-      account           = azurerm_storage_account.storage_account_east_us.name
-      connection_string = azurerm_storage_account.storage_account_east_us.primary_connection_string
-    },
-  ]
+    azureStorageAccounts = [
+      {
+        account          = azurerm_storage_account.storage_account.name
+        connectionString = azurerm_storage_account.storage_account.primary_connection_string
+      },
+      {
+        account          = azurerm_storage_account.storage_account_east_us.name
+        connectionString = azurerm_storage_account.storage_account_east_us.primary_connection_string
+      },
+    ]
+  }
 
   key_vault_secret_expiration_date     = "2200-01-01T00:00:00Z"
   key_vault_enable_network_acls        = true

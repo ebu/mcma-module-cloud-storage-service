@@ -9,7 +9,8 @@ import { LambdaWorkerInvoker } from "@mcma/aws-lambda-worker-invoker";
 import { ApiGatewayApiController } from "@mcma/aws-api-gateway";
 import { ConsoleLoggerProvider } from "@mcma/core";
 import { AwsSecretsManagerSecretsProvider } from "@mcma/aws-secrets-manager";
-import { captureAWSv3Client } from "aws-xray-sdk-core";
+import xray from "aws-xray-sdk-core";
+const { captureAWSv3Client } = xray;
 
 const secretsManagerClient = captureAWSv3Client(new SecretsManagerClient({}));
 const dynamoDBClient = captureAWSv3Client(new DynamoDBClient({}));
