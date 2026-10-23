@@ -1,8 +1,7 @@
-def moduleVersion = "3.0.0"
 
 def requiredVersionTerraform = "^1.10.0"
 def requiredVersionNodeJS = ">=22.0.0"
-def requiredVersionTsc = "5.9.3"
+def requiredVersionTsc = "7.0.2"
 
 allprojects {
     ext {
@@ -104,13 +103,13 @@ task verifyNodeJS {
 }
 
 task verifyTerraform {
-    def actualVersion = getVersionTerraform()
+    def actualVersion = providers.provider { getVersionTerraform() }
 
     inputs.property("VERSION_TERRAFORM", requiredVersionTerraform)
-    outputs.upToDateWhen { isSemVerMatching(actualVersion, requiredVersionTerraform) }
+    outputs.upToDateWhen { isSemVerMatching(actualVersion.get(), requiredVersionTerraform) }
     doLast {
-        if (!isSemVerMatching(actualVersion, requiredVersionTerraform)) {
-            throw new Exception("Required Terraform version " + requiredVersionTerraform + " not found. Detected version " + actualVersion)
+        if (!isSemVerMatching(actualVersion.get(), requiredVersionTerraform)) {
+            throw new Exception("Required Terraform version " + requiredVersionTerraform + " not found. Detected version " + actualVersion.get())
         }
     }
 }
@@ -134,46 +133,13 @@ task build {
 
 task clean {}
 
-interface InjectedExecOps {
-    @Inject
-    ExecOperations getExecOps()
-}
-
-task publish(type: Exec) {
-    def injected = project.objects.newInstance(InjectedExecOps)
-    def projectDir = project.projectDir
-
-    doFirst {
-        def stdout = new ByteArrayOutputStream()
-        def stderr = new ByteArrayOutputStream()
-
-
-        try {
-            injected.execOps.exec {
-                commandLine gitExecutable
-                workingDir projectDir
-                args "status", "--porcelain"
-                standardOutput = stdout
-                errorOutput = stderr
-            }
-        } catch (Exception ignored) {
-        }
-
-        if (stdout.toString().trim().length() > 0) {
-            throw new Exception("Local changes detected. Version tag not added")
-        }
-    }
-    commandLine gitExecutable
-    args "tag", "-a", "v${moduleVersion}", "-m", "Released version ${moduleVersion}"
-
+task publish {
     doLast {
-        injected.execOps.exec {
-            commandLine gitExecutable
-            workingDir projectDir
-            args "push", "origin", "tag", "v${moduleVersion}"
-        }
+        throw new GradleException("Use the GitHub Prepare release workflow to create a verified draft release.")
     }
 }
+
+apply from: "gradle-tasks-for-release.gradle"
 
 afterEvaluate {
     // avoiding simultaneous connections to npmjs.com

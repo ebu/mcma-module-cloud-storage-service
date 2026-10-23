@@ -9,7 +9,7 @@ const npm = process.env.npm_execpath;
 if (!npm) throw new Error('Run this command through npm run verify.');
 if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Node 22 or newer is required.');
 const compiler = path.join(root, 'node_modules/typescript/bin/tsc');
-assert.equal(require(path.join(root, 'node_modules/typescript/package.json')).version, '5.9.3');
+assert.equal(require(path.join(root, 'node_modules/typescript/package.json')).version, '7.0.2');
 function run(args, cwd = root, capture = false) {
     const result = spawnSync(process.execPath, args, { cwd, encoding: 'utf8', stdio: capture ? 'pipe' : 'inherit' });
     if (result.error) throw result.error;
@@ -86,6 +86,7 @@ function build(pkg) {
     }
     if (cloud) deps.forEach(inject);
     else for (const dep of deps) copyBuiltPackage(dep,path.join(pkg.dir,'node_modules',dep.manifest.name));
+    if (cloud) run([path.join(root, 'scripts/check-dependencies.cjs'), pkg.dir]);
     resetGenerated(pkg.output);
     run([compiler,'-p','tsconfig.json'],pkg.dir);
     if(cloud) fs.copyFileSync(path.join(pkg.dir,'package.json'),path.join(pkg.output,'package.json'));

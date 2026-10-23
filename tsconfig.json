@@ -3,9 +3,12 @@
         "module": "Node20",
         "target": "ES2022",
         "esModuleInterop": true,
-        "downlevelIteration": true,
         "noImplicitAny": true,
         "noImplicitReturns": true,
-        "sourceMap": true
+        "sourceMap": true,
+        "strict": false,
+        "types": [
+            "node"
+        ]
     }
 }

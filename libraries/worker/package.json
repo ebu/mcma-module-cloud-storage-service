@@ -7,11 +7,11 @@
     "types": "index.d.ts",
     "license": "Apache-2.0",
     "dependencies": {
-        "uuid": "^11.1.1",
-        "@aws-sdk/s3-request-presigner": "^3.1088.0",
-        "@aws-sdk/client-s3": "^3.1088.0",
-        "@aws-sdk/lib-storage": "^3.1088.0",
-        "@azure/storage-blob": "^12.33.0"
+        "uuid": "14.0.3",
+        "@aws-sdk/s3-request-presigner": "3.1155.0",
+        "@aws-sdk/client-s3": "3.1155.0",
+        "@aws-sdk/lib-storage": "3.1155.0",
+        "@azure/storage-blob": "12.34.0"
     },
     "devDependencies": {
         "@mcma/aws-s3": "2.0.0",
@@ -22,7 +22,7 @@
         "@mcma/secrets": "2.0.0",
         "@mcma/worker": "2.0.0",
         "@mcma/worker-invoker": "2.0.0",
-        "@types/node": "^22.20.1"
+        "@types/node": "22.20.5"
     },
     "peerDependencies": {
         "@mcma/aws-s3": "2.0.0",

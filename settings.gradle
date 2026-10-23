@@ -4,10 +4,12 @@ include "aws",
         "aws:worker",
         "azure",
         "azure:function-app",
-        "deployment",
         "libraries:monitor",
         "libraries:storage",
-        "libraries:worker",
+        "libraries:worker"
+
+if (!providers.gradleProperty("releaseBuild").isPresent()) {
+    include "deployment",
         "scripts",
         "scripts:test-aws-worker",
         "scripts:test-copy-file",
@@ -17,3 +19,5 @@ include "aws",
         "scripts:test-restore-files",
         "scripts:test-restore-folder",
         "scripts:test-worker-lib"
+
+}
